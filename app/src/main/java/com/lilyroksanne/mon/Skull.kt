@@ -143,7 +143,7 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                 gravity = Gravity.TOP
                 setMargins(40, 120, 40, 40)
             }
-            typingVolume = 0.3f
+            typingVolume = 0.127f
             startDialogue(
                 listOf(
                     "...",
@@ -324,11 +324,15 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
         setContentView(rootLayout)
 
         lifecycleScope.launch {
+            // Traemos el historial, getLastChatMessages ya los devuelve en orden cronológico correcto (el más viejo primero)
             val history = viewModel.memoryRepo.getLastChatMessages(12)
             if (history.isNotEmpty()) {
                 sentMessagesHistory.addAll(history)
                 tvLastMessages.visibility = android.view.View.VISIBLE
-                tvLastMessages.text = sentMessagesHistory.joinToString("\n")
+                
+                // Mostrar inicialmente solo los que empiezan con "lily"
+                val filteredHistory = sentMessagesHistory.filter { it.startsWith("lily") }
+                tvLastMessages.text = filteredHistory.joinToString("\n")
             }
         }
     }
@@ -372,6 +376,14 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                             etUserInput.setText(spokenText)
                             etUserInput.setSelection(etUserInput.text.length)
                             triggerSend()
+                        } else {
+                            MonLogger.d(TAG, "onResults: Resultados vacíos o AI ocupada.")
+                            if (sttSwitch.isChecked && isAppInForeground && !isAiBusy) {
+                                lifecycleScope.launch {
+                                    delay(1000L)
+                                    checkPermissionAndStartListening()
+                                }
+                            }
                         }
                     }
                     override fun onPartialResults(partialResults: OSBundle?) {
@@ -441,17 +453,21 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {}
                     override fun onDone(utteranceId: String?) {
-                        isAiBusy = false
                         runOnUiThread {
-                            if (!isAppInForeground) {
+                            isAiBusy = false
+                            if (isAppInForeground) {
+                                setInputState(true)
+                            } else {
                                 dialogueBox.stopModemSoundLoop()
                             }
                         }
                     }
                     override fun onError(utteranceId: String?) {
-                        isAiBusy = false
                         runOnUiThread {
-                            if (!isAppInForeground) {
+                            isAiBusy = false
+                            if (isAppInForeground) {
+                                setInputState(true)
+                            } else {
                                 dialogueBox.stopModemSoundLoop()
                             }
                         }
@@ -469,8 +485,10 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "LoquendoUtteranceId")
         } else {
-            isAiBusy = false
-            setInputState(true)
+            runOnUiThread {
+                isAiBusy = false
+                setInputState(true)
+            }
         }
     }
 
@@ -522,21 +540,22 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun setInputState(enabled: Boolean) {
-        etUserInput.isEnabled = enabled
-        if (!enabled) {
-            stopListening()
-            isAiBusy = true
-            etUserInput.hint = "Espera..."
-            etUserInput.setHintTextColor(Color.parseColor("#AA93D6"))
-            // AQUÍ LLAMAMOS AL MÓDEM DE LA CAJA DE DIÁLOGO
-            dialogueBox.startModemSoundLoop()
-        } else {
-            // AQUÍ DETENEMOS EL MÓDEM DE LA CAJA DE DIÁLOGO
-            dialogueBox.stopModemSoundLoop()
-            etUserInput.hint = "Escribe un mensaje..."
-            etUserInput.setHintTextColor(Color.parseColor("#AA93D6"))
-            if (sttSwitch.isChecked) {
-                checkPermissionAndStartListening()
+        runOnUiThread {
+            etUserInput.isEnabled = enabled
+            if (!enabled) {
+                stopListening()
+                isAiBusy = true
+                etUserInput.hint = "Espera..."
+                etUserInput.setHintTextColor(Color.parseColor("#AA93D6"))
+                dialogueBox.startModemSoundLoop()
+            } else {
+                isAiBusy = false
+                dialogueBox.stopModemSoundLoop()
+                etUserInput.hint = "Escribe un mensaje..."
+                etUserInput.setHintTextColor(Color.parseColor("#AA93D6"))
+                if (sttSwitch.isChecked && isAppInForeground) {
+                    checkPermissionAndStartListening()
+                }
             }
         }
     }
@@ -566,9 +585,11 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                 throw e
             } catch (e: Exception) {
                 dialogueBox.stopModemSoundLoop()
-                isAiBusy = false
-                if (isAppInForeground) {
-                    setInputState(true)
+                runOnUiThread {
+                    isAiBusy = false
+                    if (isAppInForeground) {
+                        setInputState(true)
+                    }
                 }
             }
         }
@@ -581,7 +602,9 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         runOnUiThread {
             tvLastMessages.visibility = android.view.View.VISIBLE
-            tvLastMessages.text = sentMessagesHistory.joinToString("\n")
+            // Mostrar solo los mensajes enviados por Lily (los que empiezan con "lily")
+            val filteredHistory = sentMessagesHistory.filter { it.startsWith("lily") }
+            tvLastMessages.text = filteredHistory.joinToString("\n")
         }
     }
 

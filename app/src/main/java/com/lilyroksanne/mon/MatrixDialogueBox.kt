@@ -30,7 +30,7 @@ class MatrixDialogueBox @JvmOverloads constructor(
     var onDialogueFinished: (() -> Unit)? = null
 
     // Volumen del sonido de escritura (tecleo)
-    var typingVolume: Float = 0.3f
+    var typingVolume: Float = 0.1f
         set(value) {
             field = value
             updateTypingTrackVolume()
