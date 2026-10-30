@@ -102,4 +102,32 @@ class MemoryRepository(context: Context) {
         MonLogger.d(TAG, "getAllSummaries: Se obtuvieron los últimos $total chunks anteriores.\nContenido extraído de SQLite:\n$finalSummaries")
         finalSummaries
     }
+
+    suspend fun saveChatMessage(sender: String, message: String) = withContext(Dispatchers.IO) {
+        val db = dbHelper.writableDatabase
+        val values = ContentValues().apply {
+            put(SummaryDbHelper.COLUMN_SENDER, sender)
+            put(SummaryDbHelper.COLUMN_MESSAGE, message)
+            put(SummaryDbHelper.COLUMN_TIMESTAMP, System.currentTimeMillis())
+        }
+        db.insert(SummaryDbHelper.TABLE_CHAT_HISTORY, null, values)
+    }
+
+    suspend fun getLastChatMessages(limit: Int = 12): List<String> = withContext(Dispatchers.IO) {
+        val db = dbHelper.readableDatabase
+        val cursor = db.query(
+            SummaryDbHelper.TABLE_CHAT_HISTORY,
+            arrayOf(SummaryDbHelper.COLUMN_MESSAGE),
+            null, null, null, null,
+            "${SummaryDbHelper.COLUMN_TIMESTAMP} DESC",
+            limit.toString()
+        )
+        val result = mutableListOf<String>()
+        while (cursor.moveToNext()) {
+            result.add(cursor.getString(0))
+        }
+        cursor.close()
+        result.reverse()
+        result
+    }
 }

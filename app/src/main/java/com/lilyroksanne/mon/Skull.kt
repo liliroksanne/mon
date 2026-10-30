@@ -1,6 +1,7 @@
 package com.lilyroksanne.mon
 
 import android.Manifest
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -8,9 +9,6 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioTrack
 import android.os.Bundle
 import android.os.Bundle as OSBundle
 import android.speech.RecognitionListener
@@ -20,6 +18,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.view.Gravity
 import android.view.WindowManager
+import android.os.Build
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
@@ -70,9 +69,7 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var isListening = false
     private var isAiBusy = false
 
-    private var modemAudioTrack: AudioTrack? = null
-    private var modemJob: Job? = null
-
+    // Ya no necesitamos modemAudioTrack ni modemJob aquí, los maneja MatrixDialogueBox
     private val sentMessagesHistory = mutableListOf<String>()
 
     private var aiJob: Job? = null
@@ -94,13 +91,27 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
         MonLogger.init(this)
         MonLogger.d(TAG, "=== onCreate: Iniciando SkullActivity ===")
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            keyguardManager.requestDismissKeyguard(this, null)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                        WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+            )
+        }
+
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         sharedPreferences = getSharedPreferences("MonPrefs", Context.MODE_PRIVATE)
-        
+
         MonLogger.d(TAG, "onCreate: Inicializando TextToSpeech (Loquendo)")
         tts = TextToSpeech(this, this)
-        
+
         MonLogger.d(TAG, "onCreate: Inicializando SpeechRecognizer (Voz a Texto)")
         initializeSpeechRecognizer()
 
@@ -132,7 +143,7 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                 gravity = Gravity.TOP
                 setMargins(40, 120, 40, 40)
             }
-            typingVolume = 0.17f
+            typingVolume = 0.3f
             startDialogue(
                 listOf(
                     "...",
@@ -311,67 +322,15 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
         rootLayout.addView(bottomWrapper)
 
         setContentView(rootLayout)
-    }
 
-    private fun startModemSound() {
-        MonLogger.d(TAG, "startModemSound: Iniciando sonido de módem")
-        stopModemSound()
-        modemJob = lifecycleScope.launch {
-            try {
-                val sampleRate = 8000
-                val minSize = AudioTrack.getMinBufferSize(
-                    sampleRate,
-                    AudioFormat.CHANNEL_OUT_MONO,
-                    AudioFormat.ENCODING_PCM_8BIT
-                )
-                modemAudioTrack = AudioTrack.Builder()
-                    .setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                            .build()
-                    )
-                    .setAudioFormat(
-                        AudioFormat.Builder()
-                            .setEncoding(AudioFormat.ENCODING_PCM_8BIT)
-                            .setSampleRate(sampleRate)
-                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                            .build()
-                    )
-                    .setBufferSizeInBytes(minSize.coerceAtLeast(2048))
-                    .setTransferMode(AudioTrack.MODE_STREAM)
-                    .build()
-
-                modemAudioTrack?.setVolume(0.03f)
-                modemAudioTrack?.play()
-                val buffer = ByteArray(256)
-
-                while (isActive) {
-                    for (i in buffer.indices) {
-                        buffer[i] = ((Math.sin(i.toDouble() / 3.0) * 10).toInt()).toByte()
-                    }
-                    modemAudioTrack?.write(buffer, 0, buffer.size)
-                    delay(50L)
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+        lifecycleScope.launch {
+            val history = viewModel.memoryRepo.getLastChatMessages(12)
+            if (history.isNotEmpty()) {
+                sentMessagesHistory.addAll(history)
+                tvLastMessages.visibility = android.view.View.VISIBLE
+                tvLastMessages.text = sentMessagesHistory.joinToString("\n")
             }
         }
-    }
-
-    private fun stopModemSound() {
-        if (modemJob != null || modemAudioTrack != null) {
-            MonLogger.d(TAG, "stopModemSound: Deteniendo sonido de módem")
-        }
-        modemJob?.cancel()
-        modemJob = null
-        try {
-            modemAudioTrack?.stop()
-            modemAudioTrack?.release()
-        } catch (e: Exception) {
-            MonLogger.e(TAG, "stopModemSound: Error al liberar AudioTrack", e)
-        }
-        modemAudioTrack = null
     }
 
     private fun initializeSpeechRecognizer() {
@@ -413,8 +372,6 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                             etUserInput.setText(spokenText)
                             etUserInput.setSelection(etUserInput.text.length)
                             triggerSend()
-                        } else {
-                            MonLogger.d(TAG, "onResults: Resultados vacíos o AI ocupada.")
                         }
                     }
                     override fun onPartialResults(partialResults: OSBundle?) {
@@ -456,8 +413,6 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                 MonLogger.e(TAG, "startListening: Falló al iniciar escucha", e)
                 isListening = false
             }
-        } else {
-            MonLogger.d(TAG, "startListening omitido (sttSwitch=${sttSwitch.isChecked}, isListening=$isListening, inForeground=$isAppInForeground, isAiBusy=$isAiBusy)")
         }
     }
 
@@ -480,7 +435,6 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
             val result = tts?.setLanguage(Locale("es", "MX"))
             if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
                 isTtsReady = true
-                MonLogger.i(TAG, "onInit TTS: Lenguaje es-MX configurado correctamente.")
                 tts?.setSpeechRate(1.15f)
                 tts?.setPitch(0.95f)
 
@@ -489,21 +443,16 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                     override fun onDone(utteranceId: String?) {
                         isAiBusy = false
                         runOnUiThread {
-                            if (isAppInForeground) {
-                                setInputState(true)
-                            } else {
-                                // Si está en background, al menos reactivamos el micro al volver
-                                stopModemSound()
+                            if (!isAppInForeground) {
+                                dialogueBox.stopModemSoundLoop()
                             }
                         }
                     }
                     override fun onError(utteranceId: String?) {
                         isAiBusy = false
                         runOnUiThread {
-                            if (isAppInForeground) {
-                                setInputState(true)
-                            } else {
-                                stopModemSound()
+                            if (!isAppInForeground) {
+                                dialogueBox.stopModemSoundLoop()
                             }
                         }
                     }
@@ -513,15 +462,13 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun speakLoquendo(text: String) {
-        stopModemSound()
+        dialogueBox.stopModemSoundLoop()
         if (ttsSwitch.isChecked && isTtsReady) {
-            MonLogger.d(TAG, "speakLoquendo: Reproduciendo audio de respuesta")
             val params = Bundle().apply {
                 putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "LoquendoUtteranceId")
             }
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "LoquendoUtteranceId")
         } else {
-            MonLogger.d(TAG, "speakLoquendo: TTS desactivado o no listo, reanudando inputs")
             isAiBusy = false
             setInputState(true)
         }
@@ -530,14 +477,12 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onResume() {
         super.onResume()
         isAppInForeground = true
-        MonLogger.d(TAG, "onResume: Activity en Foreground")
 
         if (sttSwitch.isChecked && !isAiBusy) {
             checkPermissionAndStartListening()
         }
 
         if (Random.nextFloat() < 0.4f) {
-            MonLogger.d(TAG, "onResume: Lanzando iniciativa proactiva aleatoria de saludo")
             triggerProactiveInitiative("Saluda a Lily de la nada de forma cínica y cercana, como si estuvieras aburrida esperando.")
         }
 
@@ -547,20 +492,16 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onStop() {
         super.onStop()
         isAppInForeground = false
-        MonLogger.d(TAG, "onStop: Activity pasa a Background. Cancelando escucha (no procesos AI)")
         stopListening()
-        // Eliminamos las cancelaciones de aiJob, proactiveJob y tts?.stop()
-        // para que siga procesando y hablando en segundo plano si la minimizas.
     }
 
     override fun onDestroy() {
         super.onDestroy()
         isAppInForeground = false
-        MonLogger.d(TAG, "onDestroy: Destruyendo Activity, cancelando JOBS, STT y TTS")
         aiJob?.cancel()
         proactiveJob?.cancel()
         speechRecognizer?.destroy()
-        stopModemSound()
+        dialogueBox.stopModemSoundLoop()
         tts?.stop()
         tts?.shutdown()
     }
@@ -587,9 +528,11 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
             isAiBusy = true
             etUserInput.hint = "Espera..."
             etUserInput.setHintTextColor(Color.parseColor("#AA93D6"))
-            startModemSound()
+            // AQUÍ LLAMAMOS AL MÓDEM DE LA CAJA DE DIÁLOGO
+            dialogueBox.startModemSoundLoop()
         } else {
-            stopModemSound()
+            // AQUÍ DETENEMOS EL MÓDEM DE LA CAJA DE DIÁLOGO
+            dialogueBox.stopModemSoundLoop()
             etUserInput.hint = "Escribe un mensaje..."
             etUserInput.setHintTextColor(Color.parseColor("#AA93D6"))
             if (sttSwitch.isChecked) {
@@ -599,11 +542,7 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun triggerProactiveInitiative(contextHint: String) {
-        if (isAiBusy) {
-            MonLogger.d(TAG, "triggerProactiveInitiative ignorado porque isAiBusy = true")
-            return
-        }
-        MonLogger.i(TAG, "triggerProactiveInitiative: Ejecutando iniciativa con hint: $contextHint")
+        if (isAiBusy) return
         aiJob?.cancel()
         setInputState(false)
         dialogueBox.startDialogue(listOf("..."))
@@ -612,17 +551,21 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
             try {
                 val response = fetchGeminiResponseAsync(contextHint)
 
+                val dateFormat = SimpleDateFormat("yyMMdd-HHmmss", Locale.getDefault())
+                val timestamp = dateFormat.format(Date())
+                val monLine = "mon[$timestamp]$ $response"
+
+                viewModel.memoryRepo.saveChatMessage("mon", monLine)
+                addMessageToHistory(monLine)
+
                 if (isAppInForeground) {
-                    MonLogger.i(TAG, "Alisa tomó la iniciativa proactivamente.")
                     dialogueBox.startDialogue(listOf(response))
                 }
-                // Hable esté o no en foreground
                 speakLoquendo(response)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                MonLogger.e(TAG, "Error en iniciativa proactiva: ${e.message}")
-                stopModemSound()
+                dialogueBox.stopModemSoundLoop()
                 isAiBusy = false
                 if (isAppInForeground) {
                     setInputState(true)
@@ -631,25 +574,44 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun addMessageToHistory(msg: String) {
+        sentMessagesHistory.add(msg)
+        if (sentMessagesHistory.size > 12) {
+            sentMessagesHistory.removeAt(0)
+        }
+        runOnUiThread {
+            tvLastMessages.visibility = android.view.View.VISIBLE
+            tvLastMessages.text = sentMessagesHistory.joinToString("\n")
+        }
+    }
+
     private fun triggerSend() {
         val input = etUserInput.text.toString().trim()
         if (input.isNotEmpty() && !isAiBusy) {
-            MonLogger.i(TAG, "triggerSend: Enviando mensaje: $input")
             stopListening()
             hideKeyboard()
             etUserInput.text.clear()
+
+            val lowerInput = input.lowercase()
+
+            if (lowerInput.contains("silencio") || lowerInput.contains("ya no hables") || lowerInput.contains("apaga tu voz") || lowerInput.contains("desactiva tu voz")) {
+                ttsSwitch.isChecked = false
+            } else if (lowerInput.contains("quiero escuchar") || lowerInput.contains("activa tu voz") || lowerInput.contains("sigue con tu voz") || lowerInput.contains("te voy a marcar")) {
+                ttsSwitch.isChecked = true
+            }
+
+            if (lowerInput.contains("deja de escuchar") || lowerInput.contains("apaga el micrófono") || lowerInput.contains("apaga reconocimiento de voz") || lowerInput.contains("desactiva el micrófono")) {
+                sttSwitch.isChecked = false
+            } else if (lowerInput.contains("escúchame") || lowerInput.contains("enciende el micrófono") || lowerInput.contains("activa reconocimiento de voz") || lowerInput.contains("activa el micrófono")) {
+                sttSwitch.isChecked = true
+            }
 
             val dateFormat = SimpleDateFormat("yyMMdd-HHmmss", Locale.getDefault())
             val timestamp = dateFormat.format(Date())
             val linuxLine = "lily[$timestamp]$ $input"
 
-            sentMessagesHistory.add(linuxLine)
-            if (sentMessagesHistory.size > 7) {
-                sentMessagesHistory.removeAt(0)
-            }
-
-            tvLastMessages.visibility = android.view.View.VISIBLE
-            tvLastMessages.text = sentMessagesHistory.joinToString("\n")
+            lifecycleScope.launch { viewModel.memoryRepo.saveChatMessage("lily", linuxLine) }
+            addMessageToHistory(linuxLine)
 
             simulateAsciiDecoding(input)
             startProactiveTimer()
@@ -658,7 +620,7 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun simulateAsciiDecoding(finalInput: String) {
         aiJob?.cancel()
-        setInputState(false)
+        setInputState(false) // Esto activa automáticamente el sonido de módem en la dialogueBox
 
         aiJob = lifecycleScope.launch {
             try {
@@ -712,20 +674,23 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                 val response = responseDeferred.await()
                 animationJob.cancel()
 
-                MonLogger.i(TAG, "Respuesta recibida de Alisa.")
+                val monDateFormat = SimpleDateFormat("yyMMdd-HHmmss", Locale.getDefault())
+                val monTimestamp = monDateFormat.format(Date())
+                val monLine = "mon[$monTimestamp]$ $response"
+
+                viewModel.memoryRepo.saveChatMessage("mon", monLine)
+                addMessageToHistory(monLine)
+
                 if (isAppInForeground) {
                     dialogueBox.startDialogue(listOf(response))
                 }
-                
-                // Que hable incluso si se minimizó la app
+
                 speakLoquendo(response)
-                
+
             } catch (e: CancellationException) {
-                MonLogger.d(TAG, "simulateAsciiDecoding: Job cancelado")
                 throw e
             } catch (e: Exception) {
-                MonLogger.e(TAG, "simulateAsciiDecoding: Error en decodificación ASCII", e)
-                stopModemSound()
+                dialogueBox.stopModemSoundLoop()
                 if (isAppInForeground) {
                     dialogueBox.startDialogue(listOf("Mierda, algo falló en la red."))
                 }

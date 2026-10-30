@@ -12,6 +12,7 @@ import android.text.method.ScrollingMovementMethod
 import android.util.AttributeSet
 import android.widget.LinearLayout
 import android.widget.TextView
+import kotlinx.coroutines.*
 
 class MatrixDialogueBox @JvmOverloads constructor(
     context: Context,
@@ -25,21 +26,27 @@ class MatrixDialogueBox @JvmOverloads constructor(
     private var dialogueLines: List<String> = emptyList()
     private var currentLineIndex = 0
     private var currentCharIndex = 0
-    private var typingSpeedMillis: Long = 15L // ACELERADO: De 30L a 15L para que escriba mucho más rápido
+    private var typingSpeedMillis: Long = 15L // ACELERADO: De 30L a 15L
     var onDialogueFinished: (() -> Unit)? = null
 
-    // Propiedad para ajustar el volumen del sonido de escritura (0.3f = 30% del volumen, por debajo de la voz)
+    // Volumen del sonido de escritura (tecleo)
     var typingVolume: Float = 0.3f
         set(value) {
             field = value
-            updateTrackVolume()
+            updateTypingTrackVolume()
         }
 
-    private var audioTrack: AudioTrack? = null
-    private val sampleRate = 8000
+    // AudioTrack para el tecleo de letras (corto)
+    private var typingAudioTrack: AudioTrack? = null
+    private val typingSampleRate = 8000
     private val beepBuffer = byteArrayOf(
         0, 30, 60, 90, 120, 90, 60, 30, 0, -30, -60, -90, -120, -90, -60, -30
     )
+
+    // AudioTrack y Job separados exclusivamente para el sonido de MÓDEM
+    private var modemAudioTrack: AudioTrack? = null
+    private var modemCoroutineScope: CoroutineScope? = null
+    private var modemJob: Job? = null
 
     init {
         orientation = VERTICAL
@@ -61,17 +68,17 @@ class MatrixDialogueBox @JvmOverloads constructor(
             advanceDialogue()
         }
 
-        initAudioTrack()
+        initTypingAudioTrack()
     }
 
-    private fun initAudioTrack() {
+    private fun initTypingAudioTrack() {
         try {
             val bufferSize = AudioTrack.getMinBufferSize(
-                sampleRate,
+                typingSampleRate,
                 AudioFormat.CHANNEL_OUT_MONO,
                 AudioFormat.ENCODING_PCM_8BIT
             )
-            audioTrack = AudioTrack.Builder()
+            typingAudioTrack = AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_GAME)
@@ -81,7 +88,7 @@ class MatrixDialogueBox @JvmOverloads constructor(
                 .setAudioFormat(
                     AudioFormat.Builder()
                         .setEncoding(AudioFormat.ENCODING_PCM_8BIT)
-                        .setSampleRate(sampleRate)
+                        .setSampleRate(typingSampleRate)
                         .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                         .build()
                 )
@@ -89,16 +96,16 @@ class MatrixDialogueBox @JvmOverloads constructor(
                 .setTransferMode(AudioTrack.MODE_STATIC)
                 .build()
 
-            audioTrack?.write(beepBuffer, 0, beepBuffer.size)
-            updateTrackVolume()
+            typingAudioTrack?.write(beepBuffer, 0, beepBuffer.size)
+            updateTypingTrackVolume()
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
-    private fun updateTrackVolume() {
+    private fun updateTypingTrackVolume() {
         try {
-            audioTrack?.setVolume(typingVolume)
+            typingAudioTrack?.setVolume(typingVolume)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -106,7 +113,7 @@ class MatrixDialogueBox @JvmOverloads constructor(
 
     private fun playSynthBeep() {
         try {
-            audioTrack?.let { track ->
+            typingAudioTrack?.let { track ->
                 if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
                     track.stop()
                     track.reloadStaticData()
@@ -116,10 +123,78 @@ class MatrixDialogueBox @JvmOverloads constructor(
         } catch (e: Exception) {}
     }
 
+    // ==========================================
+    // SISTEMA DE SONIDO DE MÓDEM INDEPENDIENTE
+    // ==========================================
+    fun startModemSoundLoop() {
+        stopModemSoundLoop()
+        modemCoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        modemJob = modemCoroutineScope?.launch {
+            try {
+                val sampleRate = 44100 // Compatible con S25 Ultra
+                val channelConfig = AudioFormat.CHANNEL_OUT_MONO
+                val audioFormat = AudioFormat.ENCODING_PCM_8BIT
+
+                val minSize = AudioTrack.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+                val bufferSize = minSize.coerceAtLeast(4096)
+
+                modemAudioTrack = AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setEncoding(audioFormat)
+                            .setSampleRate(sampleRate)
+                            .setChannelMask(channelConfig)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(bufferSize)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+
+                modemAudioTrack?.setVolume(0.15f)
+                modemAudioTrack?.play()
+
+                val buffer = ByteArray(512)
+                var angle = 0.0
+
+                while (isActive) {
+                    for (i in buffer.indices) {
+                        val sample = Math.sin(angle) * 127.0 + (Math.random() * 20.0 - 10.0)
+                        buffer[i] = sample.toInt().toByte()
+                        angle += 0.35
+                    }
+                    modemAudioTrack?.write(buffer, 0, buffer.size)
+                    delay(20L)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun stopModemSoundLoop() {
+        modemJob?.cancel()
+        modemJob = null
+        try {
+            modemAudioTrack?.stop()
+            modemAudioTrack?.release()
+        } catch (e: Exception) {}
+        modemAudioTrack = null
+        modemCoroutineScope?.cancel()
+        modemCoroutineScope = null
+    }
+
+    // ==========================================
+    // CONTROL DE DIÁLOGOS Y ESCRITURA
+    // ==========================================
     fun startDialogue(lines: List<String>) {
         dialogueLines = lines
         currentLineIndex = 0
-        // Reiniciamos el scroll a 0 siempre que empieza un nuevo diálogo o texto
         textView.scrollTo(0, 0)
         showCurrentLine()
     }
@@ -128,7 +203,6 @@ class MatrixDialogueBox @JvmOverloads constructor(
         if (currentLineIndex < dialogueLines.size) {
             textView.text = ""
             currentCharIndex = 0
-            // Volvemos a asegurar el scroll arriba cada que cambia de línea en el mismo diálogo
             textView.scrollTo(0, 0)
             typeNextChar()
         } else {
@@ -138,7 +212,7 @@ class MatrixDialogueBox @JvmOverloads constructor(
 
     private fun typeNextChar() {
         if (currentLineIndex >= dialogueLines.size) return
-        
+
         val currentLine = dialogueLines[currentLineIndex]
         if (currentCharIndex <= currentLine.length) {
             textView.text = currentLine.substring(0, currentCharIndex)
@@ -154,7 +228,7 @@ class MatrixDialogueBox @JvmOverloads constructor(
                 }
             }
 
-            // CORREGIDO: Línea unificada sin división para evitar errores de compilación
+            // Reproduce el beep de tecleo (separado del sonido de módem)
             if (currentCharIndex > 0 && !currentLine[currentCharIndex - 1].isWhitespace()) {
                 playSynthBeep()
             }
@@ -166,14 +240,13 @@ class MatrixDialogueBox @JvmOverloads constructor(
 
     private fun advanceDialogue() {
         if (currentLineIndex >= dialogueLines.size) return
-        
+
         val currentLine = dialogueLines[currentLineIndex]
         if (currentCharIndex <= currentLine.length) {
             handler.removeCallbacksAndMessages(null)
             textView.text = currentLine
             currentCharIndex = currentLine.length + 1
-            
-            // Scroll automático hacia abajo al mostrar todo el texto de golpe
+
             val layout = textView.layout
             if (layout != null) {
                 val scrollAmount = layout.getLineTop(textView.lineCount) - textView.height
@@ -192,8 +265,9 @@ class MatrixDialogueBox @JvmOverloads constructor(
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         handler.removeCallbacksAndMessages(null)
+        stopModemSoundLoop()
         try {
-            audioTrack?.release()
+            typingAudioTrack?.release()
         } catch (e: Exception) {}
     }
 }

@@ -11,7 +11,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val TAG = "MainViewModel"
 
     // Repositorio de SQLite para la memoria
-    private val memoryRepo = MemoryRepository(application)
+    val memoryRepo = MemoryRepository(application)
     
     // Al instanciar aquí el repositorio, sobrevive a los cambios de configuración
     val geminiService: GeminiService
