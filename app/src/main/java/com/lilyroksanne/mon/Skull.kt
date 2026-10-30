@@ -92,11 +92,16 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         MonLogger.init(this)
+        MonLogger.d(TAG, "=== onCreate: Iniciando SkullActivity ===")
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         sharedPreferences = getSharedPreferences("MonPrefs", Context.MODE_PRIVATE)
+        
+        MonLogger.d(TAG, "onCreate: Inicializando TextToSpeech (Loquendo)")
         tts = TextToSpeech(this, this)
+        
+        MonLogger.d(TAG, "onCreate: Inicializando SpeechRecognizer (Voz a Texto)")
         initializeSpeechRecognizer()
 
         val rootLayout = FrameLayout(this)
@@ -309,6 +314,7 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun startModemSound() {
+        MonLogger.d(TAG, "startModemSound: Iniciando sonido de módem")
         stopModemSound()
         modemJob = lifecycleScope.launch {
             try {
@@ -354,12 +360,17 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun stopModemSound() {
+        if (modemJob != null || modemAudioTrack != null) {
+            MonLogger.d(TAG, "stopModemSound: Deteniendo sonido de módem")
+        }
         modemJob?.cancel()
         modemJob = null
         try {
             modemAudioTrack?.stop()
             modemAudioTrack?.release()
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+            MonLogger.e(TAG, "stopModemSound: Error al liberar AudioTrack", e)
+        }
         modemAudioTrack = null
     }
 
@@ -382,6 +393,7 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                     }
                     override fun onError(error: Int) {
                         isListening = false
+                        MonLogger.e(TAG, "SpeechRecognizer onError: código $error")
                         if (!isAiBusy) {
                             etUserInput.hint = "Escribe un mensaje..."
                             if (sttSwitch.isChecked && isAppInForeground && !isAiBusy) {
@@ -397,9 +409,12 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         if (!matches.isNullOrEmpty() && !isAiBusy) {
                             val spokenText = matches[0]
+                            MonLogger.i(TAG, "onResults: Reconocimiento exitoso. Texto: '$spokenText'")
                             etUserInput.setText(spokenText)
                             etUserInput.setSelection(etUserInput.text.length)
                             triggerSend()
+                        } else {
+                            MonLogger.d(TAG, "onResults: Resultados vacíos o AI ocupada.")
                         }
                     }
                     override fun onPartialResults(partialResults: OSBundle?) {
@@ -427,9 +442,9 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun startListening() {
         if (sttSwitch.isChecked && !isListening && isAppInForeground && !isAiBusy) {
             try {
+                MonLogger.d(TAG, "startListening: Activando micrófono")
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    // CORREGIDO: Se usa toLanguageTag() para forzar correctamente español de México ("es-MX")
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale("es", "MX").toLanguageTag())
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, Locale("es", "MX").toLanguageTag())
                     putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, true)
@@ -438,15 +453,21 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                 speechRecognizer?.startListening(intent)
                 isListening = true
             } catch (e: Exception) {
+                MonLogger.e(TAG, "startListening: Falló al iniciar escucha", e)
                 isListening = false
             }
+        } else {
+            MonLogger.d(TAG, "startListening omitido (sttSwitch=${sttSwitch.isChecked}, isListening=$isListening, inForeground=$isAppInForeground, isAiBusy=$isAiBusy)")
         }
     }
 
     private fun stopListening() {
+        if (isListening) MonLogger.d(TAG, "stopListening: Apagando micrófono")
         try {
             speechRecognizer?.stopListening()
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+            MonLogger.e(TAG, "stopListening: Error deteniendo speechRecognizer", e)
+        }
         isListening = false
         if (!isAiBusy) {
             etUserInput.hint = "Escribe un mensaje..."
@@ -455,24 +476,35 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
+            MonLogger.d(TAG, "onInit TTS: SUCCESS")
             val result = tts?.setLanguage(Locale("es", "MX"))
             if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
                 isTtsReady = true
+                MonLogger.i(TAG, "onInit TTS: Lenguaje es-MX configurado correctamente.")
                 tts?.setSpeechRate(1.15f)
                 tts?.setPitch(0.95f)
 
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {}
                     override fun onDone(utteranceId: String?) {
+                        isAiBusy = false
                         runOnUiThread {
-                            isAiBusy = false
-                            setInputState(true)
+                            if (isAppInForeground) {
+                                setInputState(true)
+                            } else {
+                                // Si está en background, al menos reactivamos el micro al volver
+                                stopModemSound()
+                            }
                         }
                     }
                     override fun onError(utteranceId: String?) {
+                        isAiBusy = false
                         runOnUiThread {
-                            isAiBusy = false
-                            setInputState(true)
+                            if (isAppInForeground) {
+                                setInputState(true)
+                            } else {
+                                stopModemSound()
+                            }
                         }
                     }
                 })
@@ -483,11 +515,13 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun speakLoquendo(text: String) {
         stopModemSound()
         if (ttsSwitch.isChecked && isTtsReady) {
+            MonLogger.d(TAG, "speakLoquendo: Reproduciendo audio de respuesta")
             val params = Bundle().apply {
                 putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "LoquendoUtteranceId")
             }
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, "LoquendoUtteranceId")
         } else {
+            MonLogger.d(TAG, "speakLoquendo: TTS desactivado o no listo, reanudando inputs")
             isAiBusy = false
             setInputState(true)
         }
@@ -496,12 +530,14 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onResume() {
         super.onResume()
         isAppInForeground = true
+        MonLogger.d(TAG, "onResume: Activity en Foreground")
 
         if (sttSwitch.isChecked && !isAiBusy) {
             checkPermissionAndStartListening()
         }
 
         if (Random.nextFloat() < 0.4f) {
+            MonLogger.d(TAG, "onResume: Lanzando iniciativa proactiva aleatoria de saludo")
             triggerProactiveInitiative("Saluda a Lily de la nada de forma cínica y cercana, como si estuvieras aburrida esperando.")
         }
 
@@ -511,17 +547,21 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onStop() {
         super.onStop()
         isAppInForeground = false
-        aiJob?.cancel()
-        proactiveJob?.cancel()
+        MonLogger.d(TAG, "onStop: Activity pasa a Background. Cancelando escucha (no procesos AI)")
         stopListening()
-        stopModemSound()
-        tts?.stop()
+        // Eliminamos las cancelaciones de aiJob, proactiveJob y tts?.stop()
+        // para que siga procesando y hablando en segundo plano si la minimizas.
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        isAppInForeground = false
+        MonLogger.d(TAG, "onDestroy: Destruyendo Activity, cancelando JOBS, STT y TTS")
+        aiJob?.cancel()
+        proactiveJob?.cancel()
         speechRecognizer?.destroy()
         stopModemSound()
+        tts?.stop()
         tts?.shutdown()
     }
 
@@ -559,7 +599,11 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun triggerProactiveInitiative(contextHint: String) {
-        if (isAiBusy) return
+        if (isAiBusy) {
+            MonLogger.d(TAG, "triggerProactiveInitiative ignorado porque isAiBusy = true")
+            return
+        }
+        MonLogger.i(TAG, "triggerProactiveInitiative: Ejecutando iniciativa con hint: $contextHint")
         aiJob?.cancel()
         setInputState(false)
         dialogueBox.startDialogue(listOf("..."))
@@ -571,15 +615,18 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                 if (isAppInForeground) {
                     MonLogger.i(TAG, "Alisa tomó la iniciativa proactivamente.")
                     dialogueBox.startDialogue(listOf(response))
-                    speakLoquendo(response)
                 }
+                // Hable esté o no en foreground
+                speakLoquendo(response)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 MonLogger.e(TAG, "Error en iniciativa proactiva: ${e.message}")
                 stopModemSound()
                 isAiBusy = false
-                setInputState(true)
+                if (isAppInForeground) {
+                    setInputState(true)
+                }
             }
         }
     }
@@ -587,6 +634,7 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun triggerSend() {
         val input = etUserInput.text.toString().trim()
         if (input.isNotEmpty() && !isAiBusy) {
+            MonLogger.i(TAG, "triggerSend: Enviando mensaje: $input")
             stopListening()
             hideKeyboard()
             etUserInput.text.clear()
@@ -664,20 +712,24 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                 val response = responseDeferred.await()
                 animationJob.cancel()
 
+                MonLogger.i(TAG, "Respuesta recibida de Alisa.")
                 if (isAppInForeground) {
-                    MonLogger.i(TAG, "Respuesta recibida de Alisa.")
                     dialogueBox.startDialogue(listOf(response))
-                    speakLoquendo(response)
                 }
+                
+                // Que hable incluso si se minimizó la app
+                speakLoquendo(response)
+                
             } catch (e: CancellationException) {
+                MonLogger.d(TAG, "simulateAsciiDecoding: Job cancelado")
                 throw e
             } catch (e: Exception) {
-                MonLogger.e(TAG, "Error en decodificación ASCII: ${e.message}")
+                MonLogger.e(TAG, "simulateAsciiDecoding: Error en decodificación ASCII", e)
+                stopModemSound()
                 if (isAppInForeground) {
-                    stopModemSound()
                     dialogueBox.startDialogue(listOf("Mierda, algo falló en la red."))
-                    speakLoquendo("Mierda, algo falló en la red.")
                 }
+                speakLoquendo("Mierda, algo falló en la red.")
             }
         }
     }
