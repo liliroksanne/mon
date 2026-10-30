@@ -1,0 +1,28 @@
+1. Escucha Activa en Segundo Plano (Wake Word: "Hola Mon")
+El sistema operativo Android es muy estricto con las aplicaciones que escuchan en segundo plano para evitar que consuman batería y proteger la privacidad del usuario.
+
+Servicio en Primer Plano (Foreground Service): Para que Mon siga escuchando cuando cierras la pantalla o cambias de app, debes programar un Foreground Service. Esto obligará a que Mon muestre una notificación persistente y silenciosa en tu barra de estado, indicándole a Android que la app está activa intencionalmente y no debe ser cerrada por el sistema.
+
+Motor Offline (Porcupine): No puedes enviar audio a Gemini todo el tiempo porque consumiría tus datos y batería en horas. Necesitas integrar una librería de detección de palabras clave fuera de línea (Wake Word Engine). La más recomendada para Android es Porcupine (de Picovoice). Este motor se ejecuta localmente en tu celular, escuchando únicamente el patrón acústico de "Hola Mon". Una vez que detecta esa frase, "despierta" a la aplicación y enciende el micrófono para grabar tu comando real y enviarlo a Gemini.
+
+2. Reconocimiento Exclusivo de tu Voz (Biometría de Voz)
+Esta función es perfecta para mantener el principio de exclusividad total que definiste en tu documento de diseño [cite: 1]. Así como implementaste BiometricPrompt para la huella dactilar [cite: 1], necesitas biometría, pero para tu voz.
+
+Verificación del Hablante (Speaker Verification): La transcripción de voz a texto normal no sabe quién está hablando. Para que Mon solo te responda a ti, debes usar una tecnología de Verificación de Hablante (como Eagle de Picovoice o las APIs cognitivas de Azure).
+
+Entrenamiento: Tendrás que grabar varias muestras de tu voz diciendo diferentes frases. El sistema creará un "perfil de voz" (Voice Print) encriptado en el dispositivo.
+
+Flujo de validación: Cuando el micrófono detecte un comando, primero pasará el audio por el verificador. Si el porcentaje de coincidencia con tu perfil es alto, Mon procesa el texto; si identifica que es la voz de otra persona, ejecutará el protocolo de seguridad que ya diseñaste, bloqueando el acceso y respondiendo que la entidad no es reconocida [cite: 1].
+
+3. La conexión con el automóvil: CarPlay vs. Android Auto
+Aquí hay un obstáculo técnico importante respecto a la plataforma que elegimos.
+
+El estado actual: Todo el proyecto "Mon" que hemos estructurado está desarrollado para Android Nativo, utilizando el lenguaje Kotlin y herramientas de Android Studio [cite: 1, 2].
+
+El ecosistema de Apple: CarPlay es una tecnología exclusiva de Apple diseñada para proyectar aplicaciones de dispositivos iOS (iPhone). Un celular Android no puede conectarse a Apple CarPlay, ni se puede crear una app de Android que corra en un iPhone.
+
+Tus alternativas:
+
+Usar Android Auto: Si usas tu celular Android (donde estamos programando a Mon) en el coche, debes adaptar la aplicación usando la librería androidx.car.app. Esto te permitirá diseñar una interfaz simplificada para la pantalla del estéreo de tu coche, manteniendo todo el código que ya tienes.
+
+Reescribir para iOS (Si usas iPhone): Si tu objetivo final e indispensable es conectarlo a Apple CarPlay (porque tu teléfono personal es un iPhone), lamentablemente tendríamos que pausar este proyecto en Android Studio y reescribir toda la aplicación desde cero utilizando Xcode y el lenguaje Swift de Apple.

@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <!-- Pétalo principal (Rosa neón) -->
+    <g id="petal">
+      <path d="M 175 145 Q 192 75 200 35 Q 208 75 225 145" fill="none" stroke="#FF4D94" stroke-width="3" stroke-linecap="round" />
+      <line x1="200" y1="130" x2="200" y2="70" stroke="#FF4D94" stroke-width="2" stroke-linecap="round" />
+    </g>
+    <!-- Pétalo secundario geométrico (Fucsia) -->
+    <g id="subpetal">
+      <path d="M 182 145 L 200 80 L 218 145" fill="none" stroke="#FF007F" stroke-width="2" stroke-linecap="round" />
+      <circle cx="200" cy="65" r="3" fill="#FF007F" />
+    </g>
+  </defs>
+
+  <!-- Fondo oscuro de la app con borde sutil -->
+  <rect width="400" height="400" rx="70" fill="#0D0008" />
+  <rect x="10" y="10" width="380" height="380" rx="60" fill="none" stroke="#FF4D94" stroke-width="2" opacity="0.3" />
+
+  <!-- Grupo de pétalos girados desde el centro (200, 200) -->
+  <g transform="translate(0,0)">
+    <!-- 12 Pétalos principales (cada 30 grados) -->
+    <use href="#petal" transform="rotate(0 200 200)" />
+    <use href="#petal" transform="rotate(30 200 200)" />
+    <use href="#petal" transform="rotate(60 200 200)" />
+    <use href="#petal" transform="rotate(90 200 200)" />
+    <use href="#petal" transform="rotate(120 200 200)" />
+    <use href="#petal" transform="rotate(150 200 200)" />
+    <use href="#petal" transform="rotate(180 200 200)" />
+    <use href="#petal" transform="rotate(210 200 200)" />
+    <use href="#petal" transform="rotate(240 200 200)" />
+    <use href="#petal" transform="rotate(270 200 200)" />
+    <use href="#petal" transform="rotate(300 200 200)" />
+    <use href="#petal" transform="rotate(330 200 200)" />
+
+    <!-- 12 Pétalos secundarios (desfasados 15 grados) -->
+    <use href="#subpetal" transform="rotate(15 200 200)" />
+    <use href="#subpetal" transform="rotate(45 200 200)" />
+    <use href="#subpetal" transform="rotate(75 200 200)" />
+    <use href="#subpetal" transform="rotate(105 200 200)" />
+    <use href="#subpetal" transform="rotate(135 200 200)" />
+    <use href="#subpetal" transform="rotate(165 200 200)" />
+    <use href="#subpetal" transform="rotate(195 200 200)" />
+    <use href="#subpetal" transform="rotate(225 200 200)" />
+    <use href="#subpetal" transform="rotate(255 200 200)" />
+    <use href="#subpetal" transform="rotate(285 200 200)" />
+    <use href="#subpetal" transform="rotate(315 200 200)" />
+    <use href="#subpetal" transform="rotate(345 200 200)" />
+  </g>
+
+  <!-- Círculo central oscuro que oculta la base de los pétalos -->
+  <circle cx="200" cy="200" r="75" fill="#180010" stroke="#FF4D94" stroke-width="4" />
+  
+  <!-- Círculo interno punteado/discontinuo -->
+  <circle cx="200" cy="200" r="66" fill="none" stroke="#FF007F" stroke-width="2" stroke-dasharray="8,5" />
+
+  <!-- Texto MON con fuente Consolas -->
+  <text x="200" y="218" font-family="Consolas, monospace" font-size="54" fill="#FF4D94" text-anchor="middle" font-weight="bold" letter-spacing="2">MON</text>
+</svg>

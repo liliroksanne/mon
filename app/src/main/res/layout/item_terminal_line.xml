@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tvTerminalLine"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:fontFamily="monospace"
+    android:textSize="26sp"
+    android:textColor="@color/text_mon"
+    android:paddingVertical="2dp"
+    android:paddingHorizontal="4dp" />

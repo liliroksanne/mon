@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="dark_background">#0D0008</color>
+    <color name="dark_surface">#180010</color>
+    <color name="text_mon">#FF4D94</color>
+    <color name="text_user">#FFA3C8</color>
+    <color name="accent_fuchsia">#FF007F</color>
+    <color name="cursor_pink">#FF85B3</color>
+</resources>

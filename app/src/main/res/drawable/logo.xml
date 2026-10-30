@@ -1,0 +1,81 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="700dp"
+    android:height="700dp"
+    android:viewportWidth="400"
+    android:viewportHeight="400">
+
+  <!-- GIRASOL EXPANDIDO AL MÁXIMO -->
+  <!-- Pétalos Principales (Líneas más gruesas y extendidas) -->
+  <path
+      android:pathData="M 200,15 Q 235,95 200,125 Q 165,95 200,15 Z"
+      android:fillColor="#00000000"
+      android:strokeColor="#FF4D94"
+      android:strokeWidth="11"
+      android:strokeLineJoin="round" />
+  <path
+      android:pathData="M 200,385 Q 165,305 200,275 Q 235,305 200,385 Z"
+      android:fillColor="#00000000"
+      android:strokeColor="#FF4D94"
+      android:strokeWidth="11"
+      android:strokeLineJoin="round" />
+  <path
+      android:pathData="M 385,200 Q 305,235 275,200 Q 305,165 385,200 Z"
+      android:fillColor="#00000000"
+      android:strokeColor="#FF4D94"
+      android:strokeWidth="11"
+      android:strokeLineJoin="round" />
+  <path
+      android:pathData="M 15,200 Q 95,165 125,200 Q 95,235 15,200 Z"
+      android:fillColor="#00000000"
+      android:strokeColor="#FF4D94"
+      android:strokeWidth="11"
+      android:strokeLineJoin="round" />
+
+  <!-- Pétalos Secundarios (Más visibles y robustos) -->
+  <path
+      android:pathData="M 335,65 Q 295,130 245,145 Q 260,105 335,65 Z"
+      android:fillColor="#00000000"
+      android:strokeColor="#FF007F"
+      android:strokeWidth="10"
+      android:strokeLineJoin="round" />
+  <path
+      android:pathData="M 335,335 Q 260,295 245,255 Q 295,270 335,335 Z"
+      android:fillColor="#00000000"
+      android:strokeColor="#FF007F"
+      android:strokeWidth="10"
+      android:strokeLineJoin="round" />
+  <path
+      android:pathData="M 65,335 Q 105,260 145,245 Q 130,295 65,335 Z"
+      android:fillColor="#00000000"
+      android:strokeColor="#FF007F"
+      android:strokeWidth="10"
+      android:strokeLineJoin="round" />
+  <path
+      android:pathData="M 65,65 Q 130,105 145,145 Q 105,130 65,65 Z"
+      android:fillColor="#00000000"
+      android:strokeColor="#FF007F"
+      android:strokeWidth="10"
+      android:strokeLineJoin="round" />
+
+  <!-- ANILLO CENTRAL (MÁS GRUESO Y LLAMATIVO) -->
+  <path
+      android:pathData="M 200,200 m -120,0 a 120,120 0 1,1 240,0 a 120,120 0 1,1 -240,0"
+      android:fillColor="#00000000"
+      android:strokeColor="#FF4D94"
+      android:strokeWidth="22" />
+  <path
+      android:pathData="M 200,200 m -98,0 a 98,98 0 1,1 196,0 a 98,98 0 1,1 -196,0"
+      android:fillColor="#00000000"
+      android:strokeColor="#FF007F"
+      android:strokeWidth="10" />
+
+  <!-- LETRA 'M' (MÁS GRANDE Y REFORZADA) -->
+  <path
+      android:pathData="M 120,260 L 120,140 L 200,210 L 280,140 L 280,260"
+      android:fillColor="#00000000"
+      android:strokeColor="#FF4D94"
+      android:strokeWidth="11"
+      android:strokeLineCap="square"
+      android:strokeLineJoin="miter" />
+
+</vector>
