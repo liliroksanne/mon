@@ -119,6 +119,8 @@ class MatrixDialogueBox @JvmOverloads constructor(
     fun startDialogue(lines: List<String>) {
         dialogueLines = lines
         currentLineIndex = 0
+        // Reiniciamos el scroll a 0 siempre que empieza un nuevo diálogo o texto
+        textView.scrollTo(0, 0)
         showCurrentLine()
     }
 
@@ -126,6 +128,8 @@ class MatrixDialogueBox @JvmOverloads constructor(
         if (currentLineIndex < dialogueLines.size) {
             textView.text = ""
             currentCharIndex = 0
+            // Volvemos a asegurar el scroll arriba cada que cambia de línea en el mismo diálogo
+            textView.scrollTo(0, 0)
             typeNextChar()
         } else {
             onDialogueFinished?.invoke()

@@ -53,7 +53,7 @@ class GeminiRepository(
         GenerativeModel(
             modelName = BuildConfig.GEMINI_TYPE,
             apiKey = BuildConfig.GEMINI_API_KEY,
-            systemInstruction = content { text("Eres un asistente que resume la interacción entre Lily y Mon. Haz un resumen conciso en tercera persona sobre de qué hablaron y qué información clave se mencionó. Mantén el resumen breve.") }
+            systemInstruction = content { text("Resume la plática entre Lily y Mon brevemente (3ra persona, puntos clave).") }
         )
     }
 
@@ -83,10 +83,10 @@ class GeminiRepository(
             val pastSummaries = memoryRepo.getAllSummaries()
             if (pastSummaries.isNotEmpty()) {
                 MonLogger.d(TAG, "Inyectando contexto de memoria anterior y fecha actual al prompt inicial. Contexto mandado:\n$pastSummaries")
-                actualPrompt = "[INFO DEL SISTEMA: La fecha y hora actual es $currentDate]\n\n[MEMORIA DE SESIONES ANTERIORES:\n$pastSummaries]\n\nMensaje actual de Lily: $prompt"
+                actualPrompt = "[SysTime:$currentDate]\n[Memoria:\n$pastSummaries]\nLily:$prompt"
             } else {
                 MonLogger.d(TAG, "Inyectando únicamente fecha actual (no hay memoria anterior).")
-                actualPrompt = "[INFO DEL SISTEMA: La fecha y hora actual es $currentDate]\n\nMensaje actual de Lily: $prompt"
+                actualPrompt = "[SysTime:$currentDate]\nLily:$prompt"
             }
         }
 
@@ -124,7 +124,7 @@ class GeminiRepository(
                 // 2. Generar un resumen actualizado de ese registro en segundo plano
                 summaryMutex.withLock {
                     MonLogger.d(TAG, "Generando resumen actualizado para el chunk $chunkStartTime")
-                    val summaryResponse = summarizerModel.generateContent("Por favor resume esta conversación de los últimos minutos:\n$accumulatedContent")
+                    val summaryResponse = summarizerModel.generateContent("Resume:\n$accumulatedContent")
                     val summaryText = summaryResponse.text ?: ""
                     
                     MonLogger.d(TAG, "El resumen generado por Gemini para guardar es:\n$summaryText")

@@ -15,14 +15,24 @@
         android:exported="true"
         android:windowSoftInputMode="adjustPan"
         android:theme="@style/Theme.Mon">
+
+        <meta-data
+            android:name="android.app.shortcuts"
+            android:resource="@xml/shortcuts" />
+
         <activity
             android:name=".Skull"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="monapp" android:host="open" />
             </intent-filter>
         </activity>
 
