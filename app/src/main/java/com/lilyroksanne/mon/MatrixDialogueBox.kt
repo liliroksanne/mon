@@ -13,6 +13,7 @@ import android.util.AttributeSet
 import android.widget.LinearLayout
 import android.widget.TextView
 import kotlinx.coroutines.*
+import com.lilyroksanne.mon.util.MonLogger
 
 class MatrixDialogueBox @JvmOverloads constructor(
     context: Context,
@@ -20,14 +21,17 @@ class MatrixDialogueBox @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : LinearLayout(context, attrs, defStyleAttr) {
 
+    private val TAG = "MatrixDialogueBox"
     private val textView: TextView
     private val handler = Handler(Looper.getMainLooper())
 
     private var dialogueLines: List<String> = emptyList()
     private var currentLineIndex = 0
     private var currentCharIndex = 0
-    private var typingSpeedMillis: Long  = 24L // Velocidad normal (rápida para los ... o errores)
-    private var slowTypingSpeedMillis: Long = 95L // Velocidad SUPER lenta que encaja con voz humana
+
+    // Velocidades base (Modifícalas aquí si lo quieres más lento o más rápido de golpe)
+    private var typingSpeedMillis: Long  = 1L   // Velocidad normal por carácter (milisegundos)
+    private var slowTypingSpeedMillis: Long = 2L // Velocidad lenta
     var onDialogueFinished: (() -> Unit)? = null
 
     // Volumen del sonido de escritura (tecleo)
@@ -103,7 +107,7 @@ class MatrixDialogueBox @JvmOverloads constructor(
             typingAudioTrack?.write(beepBuffer, 0, beepBuffer.size)
             updateTypingTrackVolume()
         } catch (e: Exception) {
-            e.printStackTrace()
+            MonLogger.e(TAG, "Error inicializando AudioTrack de tecleo", e)
         }
     }
 
@@ -133,11 +137,11 @@ class MatrixDialogueBox @JvmOverloads constructor(
     fun startModemSoundLoop() {
         stopModemSoundLoop()
         skullView?.setModemSoundActive(true)
-        
+
         modemCoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         modemJob = modemCoroutineScope?.launch {
             try {
-                val sampleRate = 44100 // Compatible con S25 Ultra
+                val sampleRate = 44100
                 val channelConfig = AudioFormat.CHANNEL_OUT_MONO
                 val audioFormat = AudioFormat.ENCODING_PCM_8BIT
 
@@ -178,7 +182,7 @@ class MatrixDialogueBox @JvmOverloads constructor(
                     delay(20L)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                MonLogger.e(TAG, "Error en loop de sonido de módem", e)
             }
         }
     }
@@ -197,26 +201,41 @@ class MatrixDialogueBox @JvmOverloads constructor(
     }
 
     // ==========================================
-    // CONTROL DE DIÁLOGOS Y ESCRITURA
+    // CONTROL DE DIÁLOGOS Y ESCRITURA (DINÁMICO)
     // ==========================================
     fun startDialogue(lines: List<String>, slowDown: Boolean = false) {
-        // Si slowDown es verdadero, ajustamos la velocidad del handler para simular que está "hablando"
-        val currentSpeed = if (slowDown) slowTypingSpeedMillis else typingSpeedMillis
-        
         dialogueLines = lines
         currentLineIndex = 0
         textView.scrollTo(0, 0)
-        showCurrentLine(currentSpeed)
+        showCurrentLine(slowDown)
     }
 
-    private fun showCurrentLine(speedMillis: Long) {
+    private fun showCurrentLine(slowDown: Boolean) {
         if (currentLineIndex < dialogueLines.size) {
             textView.text = ""
             currentCharIndex = 0
             textView.scrollTo(0, 0)
-            typeNextChar(speedMillis)
+
+            val currentLine = dialogueLines[currentLineIndex]
+            val calculatedSpeed = calculateDynamicSpeed(currentLine.length, slowDown)
+
+            typeNextChar(calculatedSpeed)
         } else {
             onDialogueFinished?.invoke()
+        }
+    }
+
+    /**
+     * Calcula la velocidad basándose estrictamente en la base configurada.
+     * Ahora sí respetará el valor que pongas en `typingSpeedMillis`.
+     */
+    private fun calculateDynamicSpeed(length: Int, slowDown: Boolean): Long {
+        val baseSpeed = if (slowDown) slowTypingSpeedMillis else typingSpeedMillis
+
+        return when {
+            length <= 5 -> baseSpeed + 35L    // Palabras muy cortas (más pausadas)
+            length in 6..30 -> baseSpeed      // Velocidad estándar
+            else -> (baseSpeed * 0.8).toLong() // Textos largos bajan ligeramente el delay para no aburrir, pero usando la base
         }
     }
 
@@ -238,12 +257,13 @@ class MatrixDialogueBox @JvmOverloads constructor(
                 }
             }
 
-            // Reproduce el beep de tecleo (separado del sonido de módem)
+            // Reproduce el beep de tecleo omitiendo espacios en blanco
             if (currentCharIndex > 0 && !currentLine[currentCharIndex - 1].isWhitespace()) {
                 playSynthBeep()
             }
 
             currentCharIndex++
+
             handler.postDelayed({ typeNextChar(speedMillis) }, speedMillis)
         }
     }
@@ -253,6 +273,7 @@ class MatrixDialogueBox @JvmOverloads constructor(
 
         val currentLine = dialogueLines[currentLineIndex]
         if (currentCharIndex <= currentLine.length) {
+            // Si el usuario toca la pantalla, completa el texto de golpe
             handler.removeCallbacksAndMessages(null)
             textView.text = currentLine
             currentCharIndex = currentLine.length + 1
@@ -268,9 +289,7 @@ class MatrixDialogueBox @JvmOverloads constructor(
             }
         } else {
             currentLineIndex++
-            // Si el usuario toca la pantalla y salta la línea actual, el resto ya sale instantáneo (speed 0) 
-            // o a la velocidad por defecto si quieres que siga normal, en este caso lo dejamos con la original por facilidad
-            showCurrentLine(typingSpeedMillis)
+            showCurrentLine(false)
         }
     }
 

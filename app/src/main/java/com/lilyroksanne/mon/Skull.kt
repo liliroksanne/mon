@@ -270,7 +270,7 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
             isSingleLine = false
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
             maxLines = 4
-
+            filters = arrayOf(android.text.InputFilter.LengthFilter(270))
             imeOptions = EditorInfo.IME_ACTION_SEND
 
             setOnEditorActionListener { _, actionId, _ ->
@@ -780,7 +780,9 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
         aiJob = lifecycleScope.launch {
             try {
                 val asciiChars = "█▓▒░#@$%&*<>[]/\\=?+-10.,§~"
-                val length = finalInput.length.coerceAtLeast(1)
+                var length = finalInput.length.coerceAtLeast(1)
+                if(length>27)
+                    length=27
 
                 MonLogger.d(TAG, "simulateAsciiDecoding: Lanzando corrutina de generación Gemini en IO")
                 val responseDeferred = async(Dispatchers.IO) {
@@ -795,7 +797,7 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                         }.joinToString("")
 
                         dialogueBox.startDialogue(listOf(currentDisplay))
-                        delay(90L)
+                        delay(290L)
                     }
                 }
 
