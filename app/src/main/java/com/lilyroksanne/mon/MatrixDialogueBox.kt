@@ -48,6 +48,9 @@ class MatrixDialogueBox @JvmOverloads constructor(
     private var modemCoroutineScope: CoroutineScope? = null
     private var modemJob: Job? = null
 
+    // Referencia a la vista Matrix (calavera) para inyectarle el efecto visual
+    var skullView: MatrixSkullView? = null
+
     init {
         orientation = VERTICAL
         setPadding(45, 35, 45, 35)
@@ -128,6 +131,8 @@ class MatrixDialogueBox @JvmOverloads constructor(
     // ==========================================
     fun startModemSoundLoop() {
         stopModemSoundLoop()
+        skullView?.setModemSoundActive(true)
+        
         modemCoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         modemJob = modemCoroutineScope?.launch {
             try {
@@ -178,6 +183,7 @@ class MatrixDialogueBox @JvmOverloads constructor(
     }
 
     fun stopModemSoundLoop() {
+        skullView?.setModemSoundActive(false)
         modemJob?.cancel()
         modemJob = null
         try {

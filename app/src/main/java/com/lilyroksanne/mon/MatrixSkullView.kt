@@ -32,7 +32,9 @@ class MatrixSkullView @JvmOverloads constructor(
 
     var initialFadeDurationMillis: Long = 1500L
     var frameIntervalMillis: Long = 40L
-    var matrixChars: String = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*+-/\\<>"
+    var matrixChars: String = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*+|@-/\\<>"
+
+    private var isModemSoundActive = false
 
     var minWaitSeconds: Float = 0.15f
     var maxWaitSeconds: Float = 0.45f
@@ -50,6 +52,18 @@ class MatrixSkullView @JvmOverloads constructor(
         isAntiAlias = true
         textSize = 24f
     }
+    
+    // Pincel para el Glitch Analógico (rojo o blanco)
+    private val paintGlitch = Paint().apply {
+        typeface = Typeface.MONOSPACE
+        isAntiAlias = true
+        textSize = 24f
+        color = Color.WHITE
+    }
+    
+    // Variables para controlar el glitch profundo y bizarro por inactividad
+    private var lastActivityTime = System.currentTimeMillis()
+    private var isBizarreIdleGlitchActive = false
 
     private var rawBitmaps: List<Bitmap> = emptyList()
     private var grayMapsList: MutableList<Array<IntArray>> = mutableListOf()
@@ -78,6 +92,15 @@ class MatrixSkullView @JvmOverloads constructor(
     init {
         updatePaints()
         handler.post(runnable)
+    }
+
+    fun setModemSoundActive(active: Boolean) {
+        isModemSoundActive = active
+        resetIdleTimer()
+    }
+    
+    fun resetIdleTimer() {
+        lastActivityTime = System.currentTimeMillis()
     }
 
     private fun updatePaints() {
@@ -171,16 +194,44 @@ class MatrixSkullView @JvmOverloads constructor(
         val elapsed = currentTime - viewCreationTime
         val initialFadeFactor = (elapsed / initialFadeDurationMillis.toFloat()).coerceIn(0f, 1f)
 
+        // Verificamos inactividad extrema de Mon
+        val idleMillis = currentTime - lastActivityTime
+        val minIdleBizarreMillis = 1 * 60 * 300L // 3 min
+        val maxIdleBizarreMillis = 3 * 60 * 200L // 17 min 
+        
+        isBizarreIdleGlitchActive = idleMillis in minIdleBizarreMillis..maxIdleBizarreMillis
+
         val charWidth = paintText.measureText("W")
         val charHeight = paintText.textSize * 1.2f
 
         val rows = currentGrayMap.size
         val cols = if (rows > 0) currentGrayMap[0].size else 0
+        
+        // Calculamos variables de Glitch Analógico (Módem) antes de recorrer los píxeles
+        val analogInterferenceActive = isModemSoundActive && Random.nextFloat() < 0.4f // 40% de los frames tendrán glitch
+        val glitchBlockStartY = if (analogInterferenceActive) Random.nextInt(0, rows) else -1
+        val glitchBlockHeight = if (analogInterferenceActive) Random.nextInt(2, 10) else 0 // Afecta un bloque de filas
+        val analogShift = if (analogInterferenceActive) (Random.nextFloat() * 80 - 40).toInt() else 0 // Desfase horizontal
+        val useGlitchColor = analogInterferenceActive && Random.nextFloat() < 0.3f // 30% de las veces será blanco o rojo
+        
+        // Calculamos variables de Glitch Bizarro por Inactividad Extrema
+        val bizarreInterferenceActive = isBizarreIdleGlitchActive && Random.nextFloat() < 0.1f // Parpadeo bizarro al azar
+        val bizarreInvertMap = isBizarreIdleGlitchActive && Random.nextBoolean() // Cambiar sombras por luces
+        val bizarreAsciiShift = if (isBizarreIdleGlitchActive) Random.nextInt(0, asciiRamp.length) else 0
 
         for (y in 0 until rows) {
+            // Evaluamos si la fila actual cae dentro del bloque afectado por el "tearing" analógico
+            val isRowGlitched = analogInterferenceActive && y >= glitchBlockStartY && y < (glitchBlockStartY + glitchBlockHeight)
+            // Si está inactiva y bizarra, aplicamos distorsión ondulada usando seno sobre Y
+            val bizarreWaveShift = if (bizarreInterferenceActive) (Math.sin(y.toDouble() / 5.0) * 40).toInt() else 0
+            
+            val currentAnalogShift = if (isRowGlitched) analogShift else 0
+            
             for (x in 0 until cols) {
-                val baseGray = currentGrayMap[y][x]
-                val posX = x * charWidth
+                val baseGray = if (bizarreInvertMap) 255 - currentGrayMap[y][x] else currentGrayMap[y][x]
+                
+                // Aplicamos el desfase (shift) a la coordenada X si la fila está glitcheada y onda bizarra
+                val posX = x * charWidth + currentAnalogShift + bizarreWaveShift
                 val posY = y * charHeight + charHeight
 
                 if (Random.nextFloat() < 0.15) {
@@ -192,7 +243,10 @@ class MatrixSkullView @JvmOverloads constructor(
                     val noise = (Random.nextFloat() * 12 - 6).toInt()
                     val dynamicGray = (baseGray + noise).coerceIn(0, 255)
 
-                    val index = (dynamicGray * (asciiRamp.length - 1)) / 255
+                    var index = (dynamicGray * (asciiRamp.length - 1)) / 255
+                    if (isBizarreIdleGlitchActive) {
+                        index = (index + bizarreAsciiShift) % asciiRamp.length
+                    }
                     val asciiChar = asciiRamp[index]
 
                     val constantInterference = if (Random.nextFloat() < 0.25f) {
@@ -200,11 +254,30 @@ class MatrixSkullView @JvmOverloads constructor(
                     } else {
                         Random.nextFloat() * 0.15f + 0.85f
                     }
+                    
+                    // Fade out extremo (la calavera casi desaparece mientras piensa)
+                    val fadeGlichFactor = if (isModemSoundActive && Random.nextFloat() < 0.75f) {
+                        0.1f 
+                    } else {
+                        1.0f 
+                    }
+                    
+                    // Parpadeo agresivo de inactividad
+                    val bizarreFadeFactor = if (bizarreInterferenceActive && Random.nextFloat() < 0.5f) 0.0f else 1.0f
 
-                    val combinedVisibility = initialFadeFactor * constantInterference
+                    val combinedVisibility = initialFadeFactor * constantInterference * fadeGlichFactor * bizarreFadeFactor
 
                     if (Random.nextFloat() < combinedVisibility) {
-                        canvas.drawText(asciiChar.toString(), posX, posY, paintSkull)
+                        val activePaint = if (isRowGlitched && useGlitchColor) {
+                            paintGlitch.color = if (Random.nextBoolean()) Color.WHITE else Color.RED
+                            paintGlitch
+                        } else if (bizarreInterferenceActive) {
+                            paintGlitch.color = if (Random.nextFloat() < 0.05f) Color.parseColor("#00FF41") else skullColor
+                            paintGlitch
+                        } else {
+                            paintSkull
+                        }
+                        canvas.drawText(asciiChar.toString(), posX, posY, activePaint)
                     }
                 }
             }

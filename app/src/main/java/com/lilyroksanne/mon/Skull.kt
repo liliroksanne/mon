@@ -118,6 +118,7 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
         val rootLayout = FrameLayout(this)
 
         val matrixView = MatrixSkullView(this).apply {
+            id = android.view.View.generateViewId() 
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
@@ -136,6 +137,9 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
 
         dialogueBox = MatrixDialogueBox(this).apply {
+            // Le pasamos la referencia de la calavera para que pueda aplicarle efectos
+            skullView = matrixView
+            
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
