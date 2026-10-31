@@ -30,8 +30,8 @@ class MatrixDialogueBox @JvmOverloads constructor(
     private var currentCharIndex = 0
 
     // Velocidades base (Modifícalas aquí si lo quieres más lento o más rápido de golpe)
-    private var typingSpeedMillis: Long  = 1L   // Velocidad normal por carácter (milisegundos)
-    private var slowTypingSpeedMillis: Long = 2L // Velocidad lenta
+    private var typingSpeedMillis: Long = 7L // Velocidad normal (rápida para los ... o errores)
+    private var slowTypingSpeedMillis: Long = 77L //  Velocidad S ÚPER lenta (simulando voz humana de TTS)
     var onDialogueFinished: (() -> Unit)? = null
 
     // Volumen del sonido de escritura (tecleo)

@@ -130,7 +130,10 @@ object MonLogger {
         Log.d(GLOBAL_TAG, "[$className] $message")
         writeToFile("DEBUG", className, message)
     }
-
+    fun w(className: String, message: String) {
+        Log.d(GLOBAL_TAG, "[$className] $message")
+        writeToFile("WARNING", className, message)
+    }
     fun i(className: String, message: String) {
         Log.i(GLOBAL_TAG, "[$className] $message")
         writeToFile("INFO", className, message)

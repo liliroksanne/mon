@@ -37,6 +37,8 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import com.lilyroksanne.mon.util.MonLogger
+import com.lilyroksanne.mon.util.MemoryInjector
+import com.lilyroksanne.mon.data.db.SummaryDbHelper
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -77,6 +79,9 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var proactiveJob: Job? = null
     private var isAppInForeground = false
 
+    // INTERRUPTOR DE PRUEBAS DE MEMORIA
+    private val INJECT_FAKE_MEMORIES_ON_START = true // Pon esto en "false" cuando dejes de hacer pruebas
+    
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -337,6 +342,16 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         lifecycleScope.launch {
             MonLogger.d(TAG, "onCreate: Consultando repositorio de memoria para cargar historial inicial")
+            
+            // Inyectar memorias falsas si está activado y la tabla está vacía
+            if (INJECT_FAKE_MEMORIES_ON_START) {
+                val dbHistory = viewModel.memoryRepo.getLastChatMessages(1)
+                if (dbHistory.isEmpty()) { // Si está limpio el historial, metemos las pruebas
+                    val dbHelper = SummaryDbHelper(this@Skull)
+                    MemoryInjector.injectFakeMemories(dbHelper)
+                }
+            }
+
             val history = viewModel.memoryRepo.getLastChatMessages(12)
             if (history.isNotEmpty()) {
                 sentMessagesHistory.addAll(history)

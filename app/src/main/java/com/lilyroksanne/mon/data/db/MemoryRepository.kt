@@ -62,17 +62,51 @@ class MemoryRepository(context: Context) {
         MonLogger.d(TAG, "saveSummary: Resumen guardado. Filas afectadas: $rows")
     }
 
-    // Obtiene solo los ÚLTIMOS 3 resúmenes anteriores para darle contexto inicial al bot sin saturar la API
-    suspend fun getAllSummaries(): String = withContext(Dispatchers.IO) {
+    // Obtiene resúmenes que coincidan estrictamente con un rango de tiempo
+    suspend fun getSummariesFromTimeRange(startTime: Long, endTime: Long, limit: Int = 10): String = withContext(Dispatchers.IO) {
+        MonLogger.d(TAG, "getSummariesFromTimeRange: Buscando resúmenes entre $startTime y $endTime")
+        val db = dbHelper.readableDatabase
+        val cursor = db.query(
+            SummaryDbHelper.TABLE_SUMMARIES,
+            arrayOf(SummaryDbHelper.COLUMN_START_TIME, SummaryDbHelper.COLUMN_SUMMARY_TEXT),
+            "${SummaryDbHelper.COLUMN_START_TIME} >= ? AND ${SummaryDbHelper.COLUMN_START_TIME} <= ?",
+            arrayOf(startTime.toString(), endTime.toString()),
+            null, null,
+            "${SummaryDbHelper.COLUMN_START_TIME} DESC",
+            limit.toString()
+        )
+        
+        val recentSummaries = mutableListOf<String>()
+        val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("es", "MX"))
+        var total = 0
+        
+        while(cursor.moveToNext()) {
+            val sTime = cursor.getLong(0)
+            val text = cursor.getString(1)
+            if (!text.isNullOrBlank()) {
+                recentSummaries.add("[${dateFormat.format(Date(sTime))}] $text\n")
+                total++
+            }
+        }
+        cursor.close()
+        recentSummaries.reverse()
+        
+        val builder = java.lang.StringBuilder()
+        recentSummaries.forEach { builder.append(it) }
+        MonLogger.d(TAG, "getSummariesFromTimeRange: Se encontraron $total resúmenes en ese lapso.")
+        builder.toString()
+    }
+
+    // Obtiene resúmenes anteriores para darle contexto al bot sin saturar la API
+    suspend fun getAllSummaries(limit: Int = 3): String = withContext(Dispatchers.IO) {
         MonLogger.d(TAG, "getAllSummaries: Extrayendo los últimos resúmenes de sesiones previas de la BD...")
         val db = dbHelper.readableDatabase
-        // Traemos también la columna START_TIME, pero ordenados de forma descendente y limitados a 3 (más corto)
         val cursor = db.query(
             SummaryDbHelper.TABLE_SUMMARIES, 
             arrayOf(SummaryDbHelper.COLUMN_START_TIME, SummaryDbHelper.COLUMN_SUMMARY_TEXT), 
             null, null, null, null, 
             "${SummaryDbHelper.COLUMN_START_TIME} DESC", // Ordenar del más nuevo al más viejo
-            "3" // REDUCIDO A SOLO LOS ÚLTIMOS 3 REGISTROS
+            limit.toString() 
         )
         
         val recentSummaries = mutableListOf<String>()
@@ -119,6 +153,89 @@ class MemoryRepository(context: Context) {
             SummaryDbHelper.TABLE_CHAT_HISTORY,
             arrayOf(SummaryDbHelper.COLUMN_MESSAGE),
             null, null, null, null,
+            "${SummaryDbHelper.COLUMN_TIMESTAMP} DESC",
+            limit.toString()
+        )
+        val result = mutableListOf<String>()
+        while (cursor.moveToNext()) {
+            result.add(cursor.getString(0))
+        }
+        cursor.close()
+        result.reverse()
+        result
+    }
+
+    // Busca mensajes de chat en una ventana de tiempo específica (ej. entre ayer y hoy)
+    suspend fun getChatMessagesFromTimeRange(startTime: Long, endTime: Long, limit: Int = 15): List<String> = withContext(Dispatchers.IO) {
+        MonLogger.d(TAG, "getChatMessagesFromTimeRange: Buscando chat entre $startTime y $endTime")
+        val db = dbHelper.readableDatabase
+        val cursor = db.query(
+            SummaryDbHelper.TABLE_CHAT_HISTORY,
+            arrayOf(SummaryDbHelper.COLUMN_MESSAGE),
+            "${SummaryDbHelper.COLUMN_TIMESTAMP} >= ? AND ${SummaryDbHelper.COLUMN_TIMESTAMP} <= ?",
+            arrayOf(startTime.toString(), endTime.toString()),
+            null, null,
+            "${SummaryDbHelper.COLUMN_TIMESTAMP} DESC",
+            limit.toString()
+        )
+        val result = mutableListOf<String>()
+        while (cursor.moveToNext()) {
+            result.add(cursor.getString(0))
+        }
+        cursor.close()
+        result.reverse()
+        MonLogger.d(TAG, "getChatMessagesFromTimeRange: Se encontraron ${result.size} mensajes en ese lapso.")
+        result
+    }
+
+    // Busca resúmenes que coincidan con un texto o palabra clave (ej. usando LIKE)
+    suspend fun searchSummariesByKeyword(keyword: String, limit: Int = 10): String = withContext(Dispatchers.IO) {
+        MonLogger.d(TAG, "searchSummariesByKeyword: Buscando la palabra clave '$keyword' en los resúmenes")
+        val db = dbHelper.readableDatabase
+        val cursor = db.query(
+            SummaryDbHelper.TABLE_SUMMARIES,
+            arrayOf(SummaryDbHelper.COLUMN_START_TIME, SummaryDbHelper.COLUMN_SUMMARY_TEXT),
+            "${SummaryDbHelper.COLUMN_SUMMARY_TEXT} LIKE ?",
+            arrayOf("%$keyword%"),
+            null, null,
+            "${SummaryDbHelper.COLUMN_START_TIME} DESC",
+            limit.toString()
+        )
+        
+        val recentSummaries = mutableListOf<String>()
+        val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("es", "MX"))
+        var total = 0
+        
+        while(cursor.moveToNext()) {
+            val sTime = cursor.getLong(0)
+            val text = cursor.getString(1)
+            if (!text.isNullOrBlank()) {
+                val dateString = dateFormat.format(Date(sTime))
+                recentSummaries.add("[$dateString] $text\n")
+                total++
+            }
+        }
+        cursor.close()
+        recentSummaries.reverse()
+        
+        val builder = java.lang.StringBuilder()
+        recentSummaries.forEach { builder.append(it) }
+        
+        val finalSummaries = builder.toString()
+        MonLogger.d(TAG, "searchSummariesByKeyword: Se encontraron $total resúmenes relacionados a '$keyword'.")
+        finalSummaries
+    }
+
+    // Busca mensajes del chat que coincidan con un texto clave
+    suspend fun searchChatHistoryByKeyword(keyword: String, limit: Int = 15): List<String> = withContext(Dispatchers.IO) {
+        MonLogger.d(TAG, "searchChatHistoryByKeyword: Buscando la palabra clave '$keyword' en el historial textual")
+        val db = dbHelper.readableDatabase
+        val cursor = db.query(
+            SummaryDbHelper.TABLE_CHAT_HISTORY,
+            arrayOf(SummaryDbHelper.COLUMN_MESSAGE),
+            "${SummaryDbHelper.COLUMN_MESSAGE} LIKE ?",
+            arrayOf("%$keyword%"),
+            null, null,
             "${SummaryDbHelper.COLUMN_TIMESTAMP} DESC",
             limit.toString()
         )
