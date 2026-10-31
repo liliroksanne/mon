@@ -12,6 +12,7 @@ import android.util.AttributeSet
 import android.view.View
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
+import com.lilyroksanne.mon.util.MonLogger
 import kotlin.math.min
 import kotlin.random.Random
 
@@ -64,6 +65,7 @@ class MatrixSkullView @JvmOverloads constructor(
     // Variables para controlar el glitch profundo y bizarro por inactividad
     private var lastActivityTime = System.currentTimeMillis()
     private var isBizarreIdleGlitchActive = false
+    private var bizarreGlitchEndTime = 0L // Cuándo debe terminar el glitch actual
 
     private var rawBitmaps: List<Bitmap> = emptyList()
     private var grayMapsList: MutableList<Array<IntArray>> = mutableListOf()
@@ -95,12 +97,18 @@ class MatrixSkullView @JvmOverloads constructor(
     }
 
     fun setModemSoundActive(active: Boolean) {
+        if (isModemSoundActive != active) {
+            MonLogger.d("MatrixSkullView", "setModemSoundActive: Modificando a $active")
+        }
         isModemSoundActive = active
         resetIdleTimer()
     }
     
     fun resetIdleTimer() {
+        MonLogger.d("MatrixSkullView", "resetIdleTimer: Reseteando tiempo de inactividad")
         lastActivityTime = System.currentTimeMillis()
+        isBizarreIdleGlitchActive = false
+        bizarreGlitchEndTime = 0L
     }
 
     private fun updatePaints() {
@@ -196,10 +204,33 @@ class MatrixSkullView @JvmOverloads constructor(
 
         // Verificamos inactividad extrema de Mon
         val idleMillis = currentTime - lastActivityTime
-        val minIdleBizarreMillis = 1 * 60 * 300L // 3 min
-        val maxIdleBizarreMillis = 3 * 60 * 200L // 17 min 
-        
-        isBizarreIdleGlitchActive = idleMillis in minIdleBizarreMillis..maxIdleBizarreMillis
+        val idleThresholdMillis = 17 * 1000L // 15 segundos de inactividad para que empiece el glitch bizarro
+
+        // Entramos en ventana de inactividad 
+        if (idleMillis > idleThresholdMillis) {
+            if (!isBizarreIdleGlitchActive && currentTime > bizarreGlitchEndTime) {
+                // Probabilidad de que de la nada inicie un glitch bizarro
+                if (Random.nextFloat() < 0.05f) { // Se evalúa en cada frame, así que iniciará pronto
+                    isBizarreIdleGlitchActive = true
+                    // Durará entre 2 y 7 segundos
+                    val duration = Random.nextLong(1000L, 2700L)
+                    bizarreGlitchEndTime = currentTime + duration
+                    MonLogger.i("MatrixSkullView", "onDraw: INICIANDO glitch bizarro por inactividad. Durará ${duration/1000f} segundos.")
+                }
+            } else if (isBizarreIdleGlitchActive && currentTime > bizarreGlitchEndTime) {
+                // Se acabó el tiempo del glitch
+                isBizarreIdleGlitchActive = false
+                val delayNext = Random.nextLong(3000L, 7000L)
+                bizarreGlitchEndTime = currentTime + delayNext 
+                MonLogger.i("MatrixSkullView", "onDraw: TERMINANDO glitch bizarro. Próximo en al menos ${delayNext/1000f} segundos.")
+            }
+        } else {
+            if (isBizarreIdleGlitchActive) {
+                 MonLogger.d("MatrixSkullView", "onDraw: Forzando fin de glitch bizarro porque salimos de la ventana (idleMillis = $idleMillis).")
+            }
+            isBizarreIdleGlitchActive = false
+            bizarreGlitchEndTime = 0L
+        }
 
         val charWidth = paintText.measureText("W")
         val charHeight = paintText.textSize * 1.2f
