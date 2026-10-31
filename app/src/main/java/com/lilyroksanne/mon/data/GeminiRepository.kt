@@ -17,7 +17,7 @@ import java.util.Locale
 
 class GeminiRepository(
     private val memoryRepo: MemoryRepository,
-    private val useHardcode: Boolean = false 
+    private val useHardcode: Boolean = false
 ) : GeminiService {
 
     private val TAG = "GeminiRepository"

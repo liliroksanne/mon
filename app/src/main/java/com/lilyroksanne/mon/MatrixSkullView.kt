@@ -204,7 +204,7 @@ class MatrixSkullView @JvmOverloads constructor(
 
         // Verificamos inactividad extrema de Mon
         val idleMillis = currentTime - lastActivityTime
-        val idleThresholdMillis = 17 * 1000L // 15 segundos de inactividad para que empiece el glitch bizarro
+        val idleThresholdMillis = 27 * 1000L // 15 segundos de inactividad para que empiece el glitch bizarro
 
         // Entramos en ventana de inactividad 
         if (idleMillis > idleThresholdMillis) {
@@ -241,8 +241,10 @@ class MatrixSkullView @JvmOverloads constructor(
         // Calculamos variables de Glitch Analógico (Módem) antes de recorrer los píxeles
         val analogInterferenceActive = isModemSoundActive && Random.nextFloat() < 0.4f // 40% de los frames tendrán glitch
         val glitchBlockStartY = if (analogInterferenceActive) Random.nextInt(0, rows) else -1
-        val glitchBlockHeight = if (analogInterferenceActive) Random.nextInt(2, 10) else 0 // Afecta un bloque de filas
-        val analogShift = if (analogInterferenceActive) (Random.nextFloat() * 80 - 40).toInt() else 0 // Desfase horizontal
+        val glitchBlockHeight =
+            if (analogInterferenceActive) Random.nextInt(2, 10) else 0 // Afecta un bloque de filas
+        val analogShift =
+            if (analogInterferenceActive) (Random.nextFloat() * 80 - 40).toInt() else 0 // Desfase horizontal
         val useGlitchColor = analogInterferenceActive && Random.nextFloat() < 0.3f // 30% de las veces será blanco o rojo
         
         // Calculamos variables de Glitch Bizarro por Inactividad Extrema

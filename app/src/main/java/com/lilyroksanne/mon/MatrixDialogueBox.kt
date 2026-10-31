@@ -26,7 +26,8 @@ class MatrixDialogueBox @JvmOverloads constructor(
     private var dialogueLines: List<String> = emptyList()
     private var currentLineIndex = 0
     private var currentCharIndex = 0
-    private var typingSpeedMillis: Long = 15L // ACELERADO: De 30L a 15L
+    private var typingSpeedMillis: Long  = 24L // Velocidad normal (rápida para los ... o errores)
+    private var slowTypingSpeedMillis: Long = 95L // Velocidad SUPER lenta que encaja con voz humana
     var onDialogueFinished: (() -> Unit)? = null
 
     // Volumen del sonido de escritura (tecleo)
@@ -198,25 +199,28 @@ class MatrixDialogueBox @JvmOverloads constructor(
     // ==========================================
     // CONTROL DE DIÁLOGOS Y ESCRITURA
     // ==========================================
-    fun startDialogue(lines: List<String>) {
+    fun startDialogue(lines: List<String>, slowDown: Boolean = false) {
+        // Si slowDown es verdadero, ajustamos la velocidad del handler para simular que está "hablando"
+        val currentSpeed = if (slowDown) slowTypingSpeedMillis else typingSpeedMillis
+        
         dialogueLines = lines
         currentLineIndex = 0
         textView.scrollTo(0, 0)
-        showCurrentLine()
+        showCurrentLine(currentSpeed)
     }
 
-    private fun showCurrentLine() {
+    private fun showCurrentLine(speedMillis: Long) {
         if (currentLineIndex < dialogueLines.size) {
             textView.text = ""
             currentCharIndex = 0
             textView.scrollTo(0, 0)
-            typeNextChar()
+            typeNextChar(speedMillis)
         } else {
             onDialogueFinished?.invoke()
         }
     }
 
-    private fun typeNextChar() {
+    private fun typeNextChar(speedMillis: Long) {
         if (currentLineIndex >= dialogueLines.size) return
 
         val currentLine = dialogueLines[currentLineIndex]
@@ -240,7 +244,7 @@ class MatrixDialogueBox @JvmOverloads constructor(
             }
 
             currentCharIndex++
-            handler.postDelayed({ typeNextChar() }, typingSpeedMillis)
+            handler.postDelayed({ typeNextChar(speedMillis) }, speedMillis)
         }
     }
 
@@ -264,7 +268,9 @@ class MatrixDialogueBox @JvmOverloads constructor(
             }
         } else {
             currentLineIndex++
-            showCurrentLine()
+            // Si el usuario toca la pantalla y salta la línea actual, el resto ya sale instantáneo (speed 0) 
+            // o a la velocidad por defecto si quieres que siga normal, en este caso lo dejamos con la original por facilidad
+            showCurrentLine(typingSpeedMillis)
         }
     }
 
