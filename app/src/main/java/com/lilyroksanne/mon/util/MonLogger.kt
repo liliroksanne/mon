@@ -2,7 +2,6 @@ package com.lilyroksanne.mon.util
 
 import android.content.Context
 import android.net.Uri
-import android.os.Build
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.CoroutineScope
@@ -18,51 +17,65 @@ import java.util.Locale
 
 /**
  * Módulo centralizado para imprimir logs de la app.
- * Utiliza el tag general "MonLog" para filtrar en Logcat
- * y guarda un registro en un archivo de texto dentro del almacenamiento de la app y SAF.
+ * Organiza los logs creando una carpeta por día (YYYY-MM-DD) y un archivo independiente por cada corrida (mon_log_HH-mm-ss.txt).
  */
 object MonLogger {
     private const val GLOBAL_TAG = "MonLog"
     private var logFile: File? = null
     private var appContext: Context? = null
     private var customFolderUri: Uri? = null
+
+    private var currentDayFolderName: String = ""
+    private var currentRunFileName: String = ""
+
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
-
-    // Bandera para asegurarnos de marcar el inicio de una nueva corrida de la app en el archivo
-    private var isFirstLogThisRun = true
-
     private val scope = CoroutineScope(Dispatchers.IO)
     private val mutex = Mutex()
 
     /**
-     * Inicializa el logger para que pueda escribir en un archivo local en el dispositivo.
+     * Inicializa el logger para que cree la estructura por día y por corrida.
      */
     fun init(context: Context) {
         appContext = context.applicationContext
-        val directory = context.getExternalFilesDir(null) ?: context.filesDir
-        logFile = File(directory, "mon_device_logs.txt")
 
-        // Limpiamos el archivo si supera los 2MB para no saturar
-        if (logFile?.exists() == true && logFile!!.length() > 2 * 1024 * 1024) {
-            logFile?.delete()
+        val now = Date()
+        currentDayFolderName = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(now)
+        currentRunFileName = "mon_log_" + SimpleDateFormat("HH-mm-ss", Locale.getDefault()).format(now) + ".txt"
+
+        // 1. Obtener directorio base de logs de la app
+        val baseDir = context.getExternalFilesDir("Logs") ?: File(context.filesDir, "Logs")
+
+        // 2. Crear subcarpeta por día: ej. "2026-10-31"
+        val dayFolder = File(baseDir, currentDayFolderName)
+        if (!dayFolder.exists()) {
+            dayFolder.mkdirs()
         }
 
-        isFirstLogThisRun = true
+        // 3. Crear archivo de log único para esta corrida: ej. "mon_log_18-12-27.txt"
+        logFile = File(dayFolder, currentRunFileName)
+
+        // Cargar URI guardada previamente si existe en SharedPreferences
+        val prefs = context.getSharedPreferences("MonPrefs", Context.MODE_PRIVATE)
+        val savedUri = prefs.getString("custom_log_folder_uri", null)
+        if (!savedUri.isNullOrEmpty()) {
+            setCustomLogFolder(savedUri)
+        }
+
         d("MonLogger", "==================== NUEVA CORRIDA DE LA APP ====================")
-        d("MonLogger", "Logger inicializado. Guardando en: ${logFile?.absolutePath}")
+        d("MonLogger", "Logger inicializado. Guardando log de esta corrida en: ${logFile?.absolutePath}")
     }
 
     fun setCustomLogFolder(uriString: String) {
         try {
             customFolderUri = Uri.parse(uriString)
-            d("MonLogger", "Carpeta customizada de logs establecida: $uriString")
+            d("MonLogger", "Carpeta SAF de logs establecida: $uriString")
         } catch (e: Exception) {
-            Log.e(GLOBAL_TAG, "Error al parsear URI", e)
+            Log.e(GLOBAL_TAG, "Error al parsear URI de SAF", e)
         }
     }
 
     private fun writeToFile(level: String, className: String, message: String, throwable: Throwable? = null) {
-        if (logFile == null) return // Aún no se inicializa con el contexto
+        val targetFile = logFile ?: return
 
         scope.launch {
             mutex.withLock {
@@ -70,12 +83,12 @@ object MonLogger {
                     val timestamp = dateFormat.format(Date())
                     val logLine = "$timestamp $level/[$className]: $message" + (throwable?.let { "\n${Log.getStackTraceString(it)}" } ?: "") + "\n"
 
-                    // 1. Guardar en el log local de la app
-                    FileWriter(logFile, true).use { writer ->
+                    // 1. Guardar en el archivo local de esta corrida
+                    FileWriter(targetFile, true).use { writer ->
                         writer.append(logLine)
                     }
 
-                    // 2. Guardar en la carpeta que el usuario escogió (SAF)
+                    // 2. Guardar en SAF (si el usuario tiene configurada una carpeta externa elegida)
                     writeToSafLog(logLine)
                 } catch (e: Exception) {
                     Log.e(GLOBAL_TAG, "Error al escribir en el archivo de logs", e)
@@ -90,39 +103,25 @@ object MonLogger {
         try {
             val tree = DocumentFile.fromTreeUri(ctx, uri) ?: return
 
-            // Reemplazar espacios y caracteres raros del modelo del dispositivo
-            val deviceName = Build.MODEL.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-
-            var deviceFolder = tree.findFile(deviceName)
-            if (deviceFolder == null) {
-                deviceFolder = tree.createDirectory(deviceName)
+            // 1. Crear/Buscar la carpeta del día directamente (sin carpeta de modelo de teléfono)
+            var dayFolder = tree.findFile(currentDayFolderName)
+            if (dayFolder == null || !dayFolder.isDirectory) {
+                dayFolder = tree.createDirectory(currentDayFolderName)
             }
 
-            // Usamos un nombre de archivo fijo por dispositivo para que persista y se acumule en la misma corrida/historial,
-            // en lugar de cambiar con la fecha exacta (lo que creaba múltiples archivos diarios).
-            val logFileName = "mon_session_log.log"
-            var logDoc = deviceFolder?.findFile(logFileName)
-
+            // 2. Crear/Buscar el archivo de log para esta corrida específica
+            var logDoc = dayFolder?.findFile(currentRunFileName)
             if (logDoc == null) {
-                logDoc = deviceFolder?.createFile("text/plain", logFileName)
+                logDoc = dayFolder?.createFile("text/plain", currentRunFileName)
             }
 
             logDoc?.uri?.let { docUri ->
-                // Si es la primera vez que escribimos en esta ejecución, podemos inyectar una línea divisoria de sesión opcional
-                val contentToWrite = if (isFirstLogThisRun) {
-                    isFirstLogThisRun = false
-                    "\n\n--- [ NUEVA SESIÓN / CORRIDA DE APP: ${dateFormat.format(Date())} ] ---\n$logLine"
-                } else {
-                    logLine
-                }
-
-                // "wa" = write append (escribe al final del mismo archivo sin sobrescribirlo)
                 ctx.contentResolver.openOutputStream(docUri, "wa")?.use { out ->
-                    out.write(contentToWrite.toByteArray())
+                    out.write(logLine.toByteArray())
                 }
             }
         } catch (e: Exception) {
-            Log.e(GLOBAL_TAG, "Error escribiendo a la carpeta seleccionada", e)
+            Log.e(GLOBAL_TAG, "Error escribiendo en carpeta SAF", e)
         }
     }
 
@@ -130,10 +129,12 @@ object MonLogger {
         Log.d(GLOBAL_TAG, "[$className] $message")
         writeToFile("DEBUG", className, message)
     }
+
     fun w(className: String, message: String) {
         Log.d(GLOBAL_TAG, "[$className] $message")
         writeToFile("WARNING", className, message)
     }
+
     fun i(className: String, message: String) {
         Log.i(GLOBAL_TAG, "[$className] $message")
         writeToFile("INFO", className, message)

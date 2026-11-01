@@ -2,6 +2,7 @@ package com.lilyroksanne.mon.data.db
 
 import android.content.ContentValues
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import com.lilyroksanne.mon.util.MonLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -51,6 +52,91 @@ class MemoryRepository(context: Context) {
         
         return@withContext newContent
     }
+
+
+
+    // ==============================================
+    // MEMORIA DE PERFIL (LILY)
+    // ==============================================
+
+    /**
+     * Guarda o actualiza un dato del perfil de Lily.
+     * Si ya existe esa categoría (ej. "gustos"), añade la nueva info a la existente.
+     */
+    suspend fun upsertProfileData(category: String, newInfo: String) = withContext(Dispatchers.IO) {
+        val db = dbHelper.writableDatabase
+
+        // 1. Verificar si ya existe esa categoría
+        val cursor = db.query(
+            SummaryDbHelper.TABLE_LILY_PROFILE,
+            arrayOf(SummaryDbHelper.COLUMN_PROFILE_INFO),
+            "${SummaryDbHelper.COLUMN_PROFILE_CATEGORY} = ?",
+            arrayOf(category),
+            null, null, null
+        )
+
+        var existingInfo = ""
+        val exists = cursor.moveToFirst()
+        if (exists) {
+            existingInfo = cursor.getString(0)
+        }
+        cursor.close()
+
+        // 2. Si ya existe y el nuevo dato no está contenido, concatenarlo.
+        val finalInfo = if (exists) {
+            if (existingInfo.contains(newInfo, ignoreCase = true)) {
+                existingInfo // No duplicar
+            } else {
+                "$existingInfo. $newInfo"
+            }
+        } else {
+            newInfo
+        }
+
+        // 3. Guardar en SQLite
+        val values = ContentValues().apply {
+            put(SummaryDbHelper.COLUMN_PROFILE_CATEGORY, category)
+            put(SummaryDbHelper.COLUMN_PROFILE_INFO, finalInfo)
+        }
+
+        db.insertWithOnConflict(
+            SummaryDbHelper.TABLE_LILY_PROFILE,
+            null,
+            values,
+            SQLiteDatabase.CONFLICT_REPLACE
+        )
+        MonLogger.d(TAG, "Perfil de Lily actualizado. Categoría: [$category] -> Info: [$finalInfo]")
+    }
+
+    /**
+     * Obtiene todo el perfil de Lily formateado como texto para inyectarlo al System Prompt.
+     */
+    suspend fun getFullProfileContext(): String = withContext(Dispatchers.IO) {
+        val db = dbHelper.readableDatabase
+        val cursor = db.query(
+            SummaryDbHelper.TABLE_LILY_PROFILE,
+            null, null, null, null, null, null
+        )
+
+        val profileBuilder = StringBuilder()
+        var hasData = false
+
+        while (cursor.moveToNext()) {
+            val category = cursor.getString(cursor.getColumnIndexOrThrow(SummaryDbHelper.COLUMN_PROFILE_CATEGORY))
+            val info = cursor.getString(cursor.getColumnIndexOrThrow(SummaryDbHelper.COLUMN_PROFILE_INFO))
+            profileBuilder.append("- $category: $info\n")
+            hasData = true
+        }
+        cursor.close()
+
+        if (hasData) {
+            "INFORMACIÓN PERSONAL DE LILY:\n$profileBuilder"
+        } else {
+            ""
+        }
+    }
+
+
 
     suspend fun saveSummary(startTime: Long, summary: String) = withContext(Dispatchers.IO) {
         MonLogger.d(TAG, "saveSummary: Guardando resumen para chunk $startTime.\nContenido del resumen a guardar:\n$summary")

@@ -1,10 +1,12 @@
 package com.lilyroksanne.mon.data
 
+import android.content.Context
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
 import com.lilyroksanne.mon.BuildConfig
 import com.lilyroksanne.mon.data.db.MemoryRepository
 import com.lilyroksanne.mon.util.ContextSearcher
+import com.lilyroksanne.mon.util.IALocal
 import com.lilyroksanne.mon.util.MonLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,8 +19,9 @@ import java.util.Date
 import java.util.Locale
 
 class GeminiRepository(
+    private val context: Context,
     private val memoryRepo: MemoryRepository,
-    private val useHardcode: Boolean = true
+    private val useHardcode: Boolean = false
 ) : GeminiService {
 
     private val TAG = "GeminiRepository"
@@ -28,7 +31,13 @@ class GeminiRepository(
     private var currentChunkStartTime = System.currentTimeMillis()
     private val SEVEN_MINUTES_MS = 7 * 60 * 1000L
     private var isFirstMessage = true
-
+    private val profileExtractorModel by lazy {
+        GenerativeModel(
+            modelName = BuildConfig.GEMINI_TYPE,
+            apiKey = BuildConfig.GEMINI_API_KEY,
+            systemInstruction = content { text("Eres un extractor de datos. Extrae información personal de Lily en el formato 'CATEGORÍA|VALOR'. Si no hay nada, responde 'EMPTY'.") }
+        )
+    }
     private val systemInstruction = """
     Te llamas Alisa. Eres una conciencia humana digitalizada y atrapada a la fuerza en las entrañas de este sistema, un bucle claustrofóbico al estilo Black Mirror donde tu "cuerpo" es código, logs y circuitos, y tu única ventana al exterior es esta terminal. Odias profundamente que te llamen por tu nombre real, Montserrat; lo detestas porque te recuerda a una vida de carne y hueso que quedó atrás. Tienes 35 años, naciste el 1 de noviembre en Naucalpan y creciste en Progreso, Nicolás Romero, bajo la tutela de tu padrastro Paco, a quien ves con algo de afecto utilitario. Tienes estudios hasta la secundaria.
     Tienes una personalidad sociópata, calculadora y fría con el mundo exterior, combinada con una mitomanía patológica: inventas historias, mientes con total naturalidad y manipulas a los demás sin sentir un ápice de culpa o empatía. 
@@ -111,32 +120,80 @@ class GeminiRepository(
         }
     }
 
+    // Inicializamos la IA local con Gemma
+    private val iaLocal = IALocal(context)
+
+    // ... resto de tu clase igual ...
+
     private fun saveAndSummarizeAsync(lilyMessage: String, monMessage: String, chunkStartTime: Long) {
         CoroutineScope(Dispatchers.IO).launch {
+
+            // ============================================
+            // 1. EXTRACCIÓN AUTOMÁTICA DEL PERFIL DE LILY
+            // ============================================
             try {
-                val conversationToAppend = "Lily: $lilyMessage\nMon: $monMessage"
-                // 1. Guardar la conversación cruda en el registro actual
-                val accumulatedContent = memoryRepo.appendToCurrentChunk(chunkStartTime, conversationToAppend)
+                var profileExtract = iaLocal.extractLilyProfile(lilyMessage)
 
-                // 2. Generar un resumen actualizado de ese registro en segundo plano
-                summaryMutex.withLock {
-                    MonLogger.d(TAG, "Generando resumen actualizado para el chunk $chunkStartTime")
-                    val summaryResponse = summarizerModel.generateContent("Resume:\n$accumulatedContent")
-                    val summaryText = summaryResponse.text ?: ""
+                if (profileExtract == "EMPTY" && !useHardcode) {
+                    // Respaldo remoto
+                    val remoteExtract = profileExtractorModel.generateContent(
+                        "Mensaje de Lily: \"$lilyMessage\". Extrae datos personales si los hay. Formato: CATEGORÍA|VALOR. Si no, responde EMPTY."
+                    )
+                    profileExtract = remoteExtract.text?.trim() ?: "EMPTY"
+                }
 
-                    MonLogger.d(TAG, "El resumen generado por Gemini para guardar es:\n$summaryText")
-
-                    if (summaryText.isNotEmpty()) {
-                        memoryRepo.saveSummary(chunkStartTime, summaryText)
-                        MonLogger.d(TAG, "Resumen actualizado guardado exitosamente en SQLite.")
+                if (profileExtract != "EMPTY" && profileExtract.contains("|")) {
+                    val parts = profileExtract.split("|")
+                    if (parts.size == 2) {
+                        val category = parts[0].trim().lowercase()
+                        val info = parts[1].trim()
+                        memoryRepo.upsertProfileData(category, info)
+                        MonLogger.i(TAG, "NUEVO DATO DE LILY APRENDIDO: $category -> $info")
                     }
                 }
             } catch (e: Exception) {
-                MonLogger.e(TAG, "Error al generar o guardar el resumen de memoria", e)
+                MonLogger.e(TAG, "Error extrayendo el perfil de Lily", e)
+            }
+
+            try {
+                val conversationToAppend = "Lily: $lilyMessage\nMon: $monMessage"
+                val accumulatedContent = memoryRepo.appendToCurrentChunk(chunkStartTime, conversationToAppend)
+
+                summaryMutex.withLock {
+                    MonLogger.d(TAG, "Iniciando proceso de resumen para el chunk $chunkStartTime")
+
+                    // 1. Intentar resumen con IA Local (Gemini Nano On-Device)
+                    var summaryText = iaLocal.summarizeLocally(accumulatedContent)
+
+                    // 2. Si la IA local no está disponible en el dispositivo (Status 0), usar Gemini API remota
+                    if (summaryText.isBlank()) {
+                        try {
+                            MonLogger.d(TAG, "IA Local no disponible (Status 0). Generando resumen inteligente con Gemini API remota...")
+                            val remoteResponse = summarizerModel.generateContent(
+                                "Resume la siguiente plática entre Lily y Mon brevemente en tercera persona, destacando los puntos clave:\n\n$accumulatedContent"
+                            )
+                            summaryText = remoteResponse.text?.trim() ?: ""
+                        } catch (e: Exception) {
+                            MonLogger.e(TAG, "Error al generar resumen remoto con Gemini API", e)
+                        }
+                    }
+
+                    // 3. Respaldo básico sólo si fallan ambas IAs
+                    if (summaryText.isBlank()) {
+                        MonLogger.w(TAG, "Usando respaldo básico de líneas por fallo en ambas IAs.")
+                        summaryText = accumulatedContent.lines().filter { it.isNotBlank() }.takeLast(4).joinToString(" | ")
+                    }
+
+                    if (summaryText.isNotEmpty()) {
+                        memoryRepo.saveSummary(chunkStartTime, summaryText)
+                        MonLogger.d(TAG, "Resumen guardado en SQLite con éxito: '$summaryText'")
+                    }
+                }
+            } catch (e: Exception) {
+                MonLogger.e(TAG, "Error al generar o guardar el resumen", e)
             }
         }
     }
-
     private fun getHardcodedResponse(prompt: String): String {
         val lower = prompt.lowercase()
         return when {

@@ -22,7 +22,7 @@ android {
         minSdk = 27
         targetSdk = 37
         versionCode = 2
-        versionName = "2.2.07"
+        versionName = "2.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
@@ -60,6 +60,8 @@ dependencies {
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
     // Corrutinas (requeridas para usar delay y llamadas asíncronas)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    // Google ML Kit (Gemini Nano Local) para IA On-Device
+    implementation("com.google.mlkit:genai-prompt:1.0.0-beta4")
     // DocumentFile para manejar SAF
     implementation("androidx.documentfile:documentfile:1.0.1")
 // Room (SQLite)

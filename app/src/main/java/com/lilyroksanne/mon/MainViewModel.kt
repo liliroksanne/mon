@@ -18,7 +18,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         MonLogger.d(TAG, "ViewModel creado e inicializado. Conectando con GeminiService y MemoryRepository")
-        geminiService = GeminiRepository(memoryRepo = memoryRepo)
+        geminiService = GeminiRepository(context = application, memoryRepo = memoryRepo)
     }
 
     override fun onCleared() {

@@ -14,7 +14,7 @@ class ContextSearcher(
 ) {
     private val TAG = "ContextSearcher"
 
-    private val timeRegex = Regex("(?i)\\b(ayer|antier|semana pasada|mes pasado|hace\\s+(\\d+|un|unos|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\\s+(d[ií]a[s]?|hora[s]?|minuto[s]?))\\b")
+    private val timeRegex = Regex("(?i)\\b(ayer|antier|mes|ms|ayr|antr|yesterday|days|semana|semana pasada|mes pasado|hace\\s+(\\d+|un|unos|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\\s+(d[ií]a[s]?|hora[s]?|minuto[s]?))\\b")
     private val semanticRegex = Regex("(?i)\\b(te acuerdas|recordar|recuerdas que|recuerdas de|dije que|te dije|te conté|te conte|hablamos de|hablado de)\\b")
 
     suspend fun searchContext(prompt: String, currentDate: String): SearchResult {
