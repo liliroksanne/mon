@@ -14,6 +14,87 @@ class MemoryRepository(context: Context) {
     private val TAG = "MemoryRepository"
     private val dbHelper = SummaryDbHelper(context)
 
+    // ==============================================
+    // MEMORIA DE PERFIL (USUARIO)
+    // ==============================================
+
+    /**
+     * Guarda o actualiza un dato del perfil del usuario (Gustos, edad, familiares, etc.)
+     */
+    suspend fun upsertUserProfileData(category: String, newInfo: String) = withContext(Dispatchers.IO) {
+        val db = dbHelper.writableDatabase
+
+        val cursor = db.query(
+            SummaryDbHelper.TABLE_LILY_PROFILE,
+            arrayOf(SummaryDbHelper.COLUMN_PROFILE_INFO),
+            "${SummaryDbHelper.COLUMN_PROFILE_CATEGORY} = ?",
+            arrayOf(category),
+            null, null, null
+        )
+
+        var existingInfo = ""
+        val exists = cursor.moveToFirst()
+        if (exists) {
+            existingInfo = cursor.getString(0)
+        }
+        cursor.close()
+
+        val finalInfo = if (exists) {
+            if (existingInfo.contains(newInfo, ignoreCase = true)) {
+                existingInfo
+            } else {
+                "$existingInfo. $newInfo"
+            }
+        } else {
+            newInfo
+        }
+
+        val values = ContentValues().apply {
+            put(SummaryDbHelper.COLUMN_PROFILE_CATEGORY, category)
+            put(SummaryDbHelper.COLUMN_PROFILE_INFO, finalInfo)
+        }
+
+        db.insertWithOnConflict(
+            SummaryDbHelper.TABLE_LILY_PROFILE,
+            null,
+            values,
+            SQLiteDatabase.CONFLICT_REPLACE
+        )
+        MonLogger.d(TAG, "Perfil de Usuario actualizado. Categoría: [$category] -> Info: [$finalInfo]")
+    }
+
+    /**
+     * Busca en el perfil del usuario utilizando una palabra clave.
+     */
+    suspend fun searchUserProfile(keyword: String): String = withContext(Dispatchers.IO) {
+        val db = dbHelper.readableDatabase
+        val cursor = db.query(
+            SummaryDbHelper.TABLE_LILY_PROFILE,
+            arrayOf(SummaryDbHelper.COLUMN_PROFILE_CATEGORY, SummaryDbHelper.COLUMN_PROFILE_INFO),
+            "${SummaryDbHelper.COLUMN_PROFILE_INFO} LIKE ? OR ${SummaryDbHelper.COLUMN_PROFILE_INFO} LIKE ?",
+            arrayOf("%$keyword%", "%$keyword%"),
+            null, null, null
+        )
+
+        val profileBuilder = StringBuilder()
+        var hasData = false
+
+        while (cursor.moveToNext()) {
+            val category = cursor.getString(0)
+            val info = cursor.getString(1)
+            profileBuilder.append("- $category: $info\n")
+            hasData = true
+        }
+        cursor.close()
+
+        if (hasData) {
+            "El usuario ha registrado esto sobre sí mismo:\n$profileBuilder"
+        } else {
+            ""
+        }
+    }
+
+
     // Agrega nuevo contenido al registro actual (el de los últimos 7 minutos)
     // Devuelve el texto acumulado (raw) de ese registro para poder resumirlo.
     suspend fun appendToCurrentChunk(startTime: Long, addedContent: String): String = withContext(Dispatchers.IO) {

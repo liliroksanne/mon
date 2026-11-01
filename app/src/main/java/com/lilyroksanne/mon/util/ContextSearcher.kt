@@ -132,7 +132,7 @@ class ContextSearcher(
         var endTime = now
 
         when {
-            matchedValue.contains("ayer") -> {
+            matchedValue.contains("ayer") || matchedValue.contains("yesterday") ||matchedValue.contains("ayr")||matchedValue.contains("aier")-> {
                 MonLogger.d(TAG, "parseTimeContext: Rango calculado para 'ayer'")
                 startTime = now - (2 * oneDay); endTime = now - oneDay
             }
@@ -140,20 +140,20 @@ class ContextSearcher(
                 MonLogger.d(TAG, "parseTimeContext: Rango calculado para 'antier'")
                 startTime = now - (3 * oneDay); endTime = now - (2 * oneDay)
             }
-            matchedValue.contains("semana") -> {
+            matchedValue.contains("semana") || matchedValue.contains("week") -> {
                 MonLogger.d(TAG, "parseTimeContext: Rango calculado para 'semana pasada'")
                 startTime = now - (8 * oneDay); endTime = now - (5 * oneDay)
             }
-            matchedValue.contains("mes") -> {
+            matchedValue.contains("mes")||    matchedValue.contains("month") -> {
                 MonLogger.d(TAG, "parseTimeContext: Rango calculado para 'mes pasado'")
                 startTime = now - (32 * oneDay); endTime = now - (25 * oneDay)
             }
-            matchedValue.contains("días") || matchedValue.contains("dias") || matchedValue.contains("dia") -> {
+            matchedValue.contains("días") || matchedValue.contains("days")|| matchedValue.contains("dias") || matchedValue.contains("dia") -> {
                 MonLogger.d(TAG, "parseTimeContext: Rango calculado para 'hace $quantity días'")
                 startTime = now - ((quantity + 1) * oneDay)
                 endTime = now - (quantity * oneDay)
             }
-            matchedValue.contains("horas") || matchedValue.contains("hora") -> {
+            matchedValue.contains("horas")|| matchedValue.contains("hour") || matchedValue.contains("hora") -> {
                 MonLogger.d(TAG, "parseTimeContext: Rango calculado para 'hace $quantity horas'")
                 startTime = now - ((quantity + 1) * oneHour)
                 endTime = now - (quantity * oneHour)
