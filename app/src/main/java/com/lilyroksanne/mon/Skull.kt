@@ -21,6 +21,7 @@ import android.speech.tts.UtteranceProgressListener
 import android.view.Gravity
 import android.view.WindowManager
 import android.os.Build
+import android.view.KeyEvent
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
@@ -39,6 +40,7 @@ import androidx.lifecycle.lifecycleScope
 import com.lilyroksanne.mon.util.MonLogger
 import com.lilyroksanne.mon.util.MemoryInjector
 import com.lilyroksanne.mon.data.db.SummaryDbHelper
+import com.lilyroksanne.mon.util.HardwareKeyboardHelper
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -81,7 +83,7 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     // INTERRUPTOR DE PRUEBAS DE MEMORIA
     private val INJECT_FAKE_MEMORIES_ON_START = true // Pon esto en "false" cuando dejes de hacer pruebas
-    
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -124,6 +126,21 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
         MonLogger.d(TAG, "onCreate: Inicializando SpeechRecognizer (Voz a Texto)")
         initializeSpeechRecognizer()
 
+        // === ESCALAR INTERFAZ DEPENDIENDO DE LA PANTALLA ===
+        val displayMetrics = resources.displayMetrics
+        val density = displayMetrics.density
+        val screenWidth = displayMetrics.widthPixels
+        val screenHeight = displayMetrics.heightPixels
+        val dpToPx = { dp: Int -> (dp * density).toInt() }
+        val dpToPxf = { dp: Float -> dp * density }
+
+        // Calculamos un factor de escala tomando como referencia un ancho de ~1080/1440 (dependiendo de la densidad nativa de tu S25)
+        // En pantallas pequeñas como 540 de ancho, esto reducirá las fuentes para que quepan bien.
+        // Uso de coerceAtLeast(0.6f) para evitar que quede microscópico en pantallas súper viejas
+        val scaleFactor = (screenWidth / 1080f).coerceAtLeast(0.6f)
+
+        MonLogger.d(TAG, "onCreate: Resolucion de pantalla: ${screenWidth}x${screenHeight}, Densidad: $density, Factor Escala: $scaleFactor")
+
         val rootLayout = FrameLayout(this)
 
         val matrixView = MatrixSkullView(this).apply {
@@ -152,10 +169,11 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                 FrameLayout.LayoutParams.WRAP_CONTENT
             ).apply {
                 gravity = Gravity.TOP
-                setMargins(40, 120, 40, 40)
+                // Márgenes calculados por el tamaño de la pantalla
+              // setMargins((screenWidth * 0.08).toInt(), (screenHeight * 0.18).toInt(), (screenWidth * 0.08).toInt(), dpToPx(16))
+
             }
             typingVolume = 0.127f
-            // MODIFICACIÓN: Ya no saluda de forma intrusiva al abrir la app, inicia neutral en idle
             MonLogger.d(TAG, "onCreate: Configurando diálogo inicial neutral (sin saludo automático)")
             startDialogue(
                 listOf(
@@ -172,7 +190,7 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                 FrameLayout.LayoutParams.WRAP_CONTENT
             ).apply {
                 gravity = Gravity.BOTTOM
-                setMargins(40, 0, 40, 20)
+                setMargins((screenWidth * 0.08).toInt(), 0, (screenWidth * 0.08).toInt(), dpToPx(16))
             }
         }
 
@@ -182,7 +200,7 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                setMargins(10, 0, 10, 8)
+                setMargins(dpToPx(8), 0, dpToPx(8), dpToPx(8))
             }
             gravity = Gravity.END
         }
@@ -198,6 +216,8 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
             isChecked = savedSttState
             setThumbTintList(android.content.res.ColorStateList.valueOf(Color.parseColor("#DA70D6")))
             setTrackTintList(android.content.res.ColorStateList.valueOf(Color.parseColor("#5A189A")))
+            // Escalar tamaño de fuente de los switch (valor base 14f)
+            textSize = 14f * scaleFactor
             setOnCheckedChangeListener { _, isChecked ->
                 MonLogger.d(TAG, "sttSwitch: Cambio de estado de micrófono a -> $isChecked")
                 sharedPreferences.edit().putBoolean("stt_enabled", isChecked).apply()
@@ -216,6 +236,8 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
             isChecked = savedVoiceState
             setThumbTintList(android.content.res.ColorStateList.valueOf(Color.parseColor("#DA70D6")))
             setTrackTintList(android.content.res.ColorStateList.valueOf(Color.parseColor("#5A189A")))
+            // Escalar tamaño de fuente de los switch (valor base 14f)
+            textSize = 14f * scaleFactor
             setOnCheckedChangeListener { _, isChecked ->
                 MonLogger.d(TAG, "ttsSwitch: Cambio de estado de voz Loquendo a -> $isChecked")
                 sharedPreferences.edit().putBoolean("voice_enabled", isChecked).apply()
@@ -230,18 +252,19 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                setMargins(10, 0, 10, 10)
+                setMargins(dpToPx(8), 0, dpToPx(8), dpToPx(8))
             }
             setTextColor(Color.parseColor("#B19CD9"))
-            textSize = 13f
+            // Escalar el tamaño del texto del historial. Valor base original: 13f
+            textSize = (13f * scaleFactor).coerceAtLeast(10f)
             typeface = Typeface.MONOSPACE
             visibility = android.view.View.GONE
         }
 
         val inputBackground = GradientDrawable().apply {
             setColor(Color.parseColor("#FF0F051D"))
-            setStroke(3, Color.parseColor("#DA70D6"))
-            cornerRadius = 32f
+            setStroke(dpToPx(2), Color.parseColor("#DA70D6"))
+            cornerRadius = dpToPxf(24f)
         }
 
         val inputContainer = LinearLayout(this).apply {
@@ -251,7 +274,7 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
             background = inputBackground
-            setPadding(30, 20, 20, 20)
+            setPadding(dpToPx(16), dpToPx(12), dpToPx(12), dpToPx(12))
             gravity = Gravity.CENTER_VERTICAL
         }
 
@@ -268,9 +291,10 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
             setTextColor(Color.parseColor("#FFFFFF"))
 
             setBackgroundColor(Color.TRANSPARENT)
-            setPadding(10, 10, 10, 10)
+            setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8))
             typeface = Typeface.MONOSPACE
-            textSize = 22f
+            // Escalar la caja de texto. Valor base original 22f
+            textSize = (22f * scaleFactor).coerceAtLeast(14f)
 
             isSingleLine = false
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
@@ -295,17 +319,18 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
                 gravity = Gravity.CENTER_VERTICAL
-                setMargins(15, 0, 0, 0)
+                setMargins(dpToPx(8), 0, 0, 0)
             }
             text = "▶"
             setTextColor(Color.parseColor("#FFFFFF"))
-            textSize = 18f
+            // Escalar flecha de envio. Valor base original 18f
+            textSize = (18f * scaleFactor).coerceAtLeast(12f)
             typeface = Typeface.MONOSPACE
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#7B2CBF"))
-                cornerRadius = 24f
+                cornerRadius = dpToPxf(20f)
             }
-            setPadding(35, 25, 35, 25)
+            setPadding(dpToPx(16), dpToPx(12), dpToPx(16), dpToPx(12))
             setOnClickListener {
                 MonLogger.d(TAG, "sendButton: Click en botón de envío manual")
                 triggerSend()
@@ -318,7 +343,11 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
         bottomWrapper.addView(topControlsLayout)
         bottomWrapper.addView(tvLastMessages)
         bottomWrapper.addView(inputContainer)
-
+        // Configurar detección de teclado físico (T9 / QWERTY) al iniciar
+        HardwareKeyboardHelper.setupHardwareKeyboard(
+            editText = etUserInput,
+            onEnterPressed = { triggerSend() }
+        )
         ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { _, insets ->
             val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
             val imeHeight = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
@@ -326,9 +355,9 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
 
             val params = bottomWrapper.layoutParams as FrameLayout.LayoutParams
             if (imeVisible) {
-                params.bottomMargin = imeHeight + 15
+                params.bottomMargin = imeHeight + dpToPx(8)
             } else {
-                params.bottomMargin = navBarHeight.coerceAtLeast(15)
+                params.bottomMargin = navBarHeight.coerceAtLeast(dpToPx(16))
             }
             bottomWrapper.layoutParams = params
             insets
@@ -342,7 +371,7 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         lifecycleScope.launch {
             MonLogger.d(TAG, "onCreate: Consultando repositorio de memoria para cargar historial inicial")
-            
+
             // Inyectar memorias falsas si está activado y la tabla está vacía
             if (INJECT_FAKE_MEMORIES_ON_START) {
                 val dbHistory = viewModel.memoryRepo.getLastChatMessages(1)
@@ -434,7 +463,14 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
             MonLogger.e(TAG, "initializeSpeechRecognizer: Reconocimiento de voz NO disponible en este dispositivo")
         }
     }
-
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        MonLogger.d(TAG, "onConfigurationChanged: Cambio en teclado o orientación detectado")
+        HardwareKeyboardHelper.setupHardwareKeyboard(
+            editText = etUserInput,
+            onEnterPressed = { triggerSend() }
+        )
+    }
     private fun checkPermissionAndStartListening() {
         if (isAiBusy) {
             MonLogger.d(TAG, "checkPermissionAndStartListening: Omitido, AI ocupada")
@@ -554,6 +590,12 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
         super.onResume()
         isAppInForeground = true
         MonLogger.d(TAG, "=== onResume: SkullActivity en primer plano ===")
+        HardwareKeyboardHelper.setupHardwareKeyboard(
+            editText = etUserInput,
+            onEnterPressed = { triggerSend() }
+        )
+
+        MonLogger.d(TAG, "=== onResume: SkullActivity en primer plano ===")
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode) {
             MonLogger.d(TAG, "onResume: Restaurado en modo PiP. Manteniendo estado.")
@@ -574,9 +616,18 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // Entrar en modo PiP al presionar el botón de Home o al salir de la app
-            val pipParams = PictureInPictureParams.Builder().build()
-            enterPictureInPictureMode(pipParams)
+            // Check if the device supports Picture-in-Picture
+            if (packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+                // Entrar en modo PiP al presionar el botón de Home o al salir de la app
+                try {
+                    val pipParams = PictureInPictureParams.Builder().build()
+                    enterPictureInPictureMode(pipParams)
+                } catch (e: IllegalStateException) {
+                    MonLogger.e(TAG, "onUserLeaveHint: Device doesn't support picture-in-picture mode", e)
+                } catch (e: Exception) {
+                    MonLogger.e(TAG, "onUserLeaveHint: Error entering PiP mode", e)
+                }
+            }
         }
     }
 
@@ -599,6 +650,41 @@ class Skull : AppCompatActivity(), TextToSpeech.OnInitListener {
                 checkPermissionAndStartListening()
             }
         }
+    }
+
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (isAiBusy) {
+            return super.dispatchKeyEvent(event)
+        }
+
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            val keyCode = event.keyCode
+
+            // Detección de teclas de entrada física (Números 0-9, letras, *, #, borrar, soft keys)
+            val isInputKey = (keyCode in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9) ||
+                    (keyCode in KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_9) ||
+                    (keyCode in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z) ||
+                    keyCode == KeyEvent.KEYCODE_STAR || keyCode == KeyEvent.KEYCODE_NUMPAD_MULTIPLY ||
+                    keyCode == KeyEvent.KEYCODE_POUND || keyCode == KeyEvent.KEYCODE_SPACE ||
+                    keyCode == KeyEvent.KEYCODE_SOFT_RIGHT || keyCode == KeyEvent.KEYCODE_DEL ||
+                    keyCode == KeyEvent.KEYCODE_CLEAR || keyCode == KeyEvent.KEYCODE_ENTER ||
+                    keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER || keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+
+            if (isInputKey) {
+                if (!etUserInput.isFocused) {
+                    MonLogger.d(TAG, "dispatchKeyEvent: Enfocando etUserInput automáticamente por tecla $keyCode")
+                    etUserInput.requestFocus()
+                }
+                hideKeyboard()
+                val handled = etUserInput.dispatchKeyEvent(event)
+                if (handled) {
+                    return true
+                }
+            }
+        }
+
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onStop() {

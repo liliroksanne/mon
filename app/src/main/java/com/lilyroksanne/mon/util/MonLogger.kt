@@ -18,6 +18,7 @@ import java.util.Locale
 /**
  * Módulo centralizado para imprimir logs de la app.
  * Organiza los logs creando una carpeta por día (YYYY-MM-DD) y un archivo independiente por cada corrida (mon_log_HH-mm-ss.txt).
+ * Añade colores dinámicos en Logcat según la clase que emite el log.
  */
 object MonLogger {
     private const val GLOBAL_TAG = "MonLog"
@@ -27,6 +28,37 @@ object MonLogger {
 
     private var currentDayFolderName: String = ""
     private var currentRunFileName: String = ""
+
+    // ================= COLOR CONFIGURATION =================
+    private val colorMap = mutableMapOf<String, String>()
+
+    // Lista de colores ANSI amigables para Logcat
+    private val ansiColors = listOf(
+        "\u001B[31m", // Rojo
+        "\u001B[32m", // Verde
+        "\u001B[33m", // Amarillo
+        "\u001B[34m", // Azul
+        "\u001B[35m", // Magenta
+        "\u001B[36m", // Cyan
+        "\u001B[90m", // Gris oscuro
+        "\u001B[91m", // Rojo claro
+        "\u001B[92m", // Verde claro
+        "\u001B[93m", // Amarillo claro
+        "\u001B[94m", // Azul claro
+        "\u001B[95m", // Magenta claro
+        "\u001B[96m"  // Cyan claro
+    )
+    private const val ANSI_RESET = "\u001B[0m"
+    private var colorIndex = 0
+
+    private fun getColorForClass(className: String): String {
+        return colorMap.getOrPut(className) {
+            val color = ansiColors[colorIndex % ansiColors.size]
+            colorIndex++
+            color
+        }
+    }
+    // =======================================================
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -81,6 +113,7 @@ object MonLogger {
             mutex.withLock {
                 try {
                     val timestamp = dateFormat.format(Date())
+                    // Nota: No guardamos los códigos de color ANSI en el archivo de texto físico para evitar caracteres raros.
                     val logLine = "$timestamp $level/[$className]: $message" + (throwable?.let { "\n${Log.getStackTraceString(it)}" } ?: "") + "\n"
 
                     // 1. Guardar en el archivo local de esta corrida
@@ -126,25 +159,29 @@ object MonLogger {
     }
 
     fun d(className: String, message: String) {
-        Log.d(GLOBAL_TAG, "[$className] $message")
+        val color = getColorForClass(className)
+        Log.d(GLOBAL_TAG, "$color[$className] $message$ANSI_RESET")
         writeToFile("DEBUG", className, message)
     }
 
     fun w(className: String, message: String) {
-        Log.d(GLOBAL_TAG, "[$className] $message")
+        val color = getColorForClass(className)
+        Log.w(GLOBAL_TAG, "$color[$className] $message$ANSI_RESET")
         writeToFile("WARNING", className, message)
     }
 
     fun i(className: String, message: String) {
-        Log.i(GLOBAL_TAG, "[$className] $message")
+        val color = getColorForClass(className)
+        Log.i(GLOBAL_TAG, "$color[$className] $message$ANSI_RESET")
         writeToFile("INFO", className, message)
     }
 
     fun e(className: String, message: String, throwable: Throwable? = null) {
+        val color = getColorForClass(className)
         if (throwable != null) {
-            Log.e(GLOBAL_TAG, "[$className] $message", throwable)
+            Log.e(GLOBAL_TAG, "$color[$className] $message$ANSI_RESET", throwable)
         } else {
-            Log.e(GLOBAL_TAG, "[$className] $message")
+            Log.e(GLOBAL_TAG, "$color[$className] $message$ANSI_RESET")
         }
         writeToFile("ERROR", className, message, throwable)
     }

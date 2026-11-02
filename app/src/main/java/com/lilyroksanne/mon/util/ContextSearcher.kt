@@ -1,6 +1,7 @@
 package com.lilyroksanne.mon.util
 
 import com.lilyroksanne.mon.data.db.MemoryRepository
+import java.util.Calendar
 
 data class SearchResult(
     val finalPrompt: String,
@@ -14,8 +15,13 @@ class ContextSearcher(
 ) {
     private val TAG = "ContextSearcher"
 
+    // Instanciamos el buscador de perfil de usuario
+    private val userProfileSearcher = UserProfileSearcher(memoryRepo)
+
     private val timeRegex = Regex("(?i)\\b(ayer|antier|mes|ms|ayr|antr|yesterday|days|semana|semana pasada|mes pasado|hace\\s+(\\d+|un|unos|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\\s+(d[ií]a[s]?|hora[s]?|minuto[s]?))\\b")
-    private val semanticRegex = Regex("(?i)\\b(te acuerdas|recordar|recuerdas que|recuerdas de|dije que|te dije|te conté|te conte|hablamos de|hablado de)\\b")
+
+    // Un Regex semántico mucho más abarcador, para "te acuerdas que te dije que..."
+    private val semanticRegex = Regex("(?i)\\b(te acuerdas|recordar|recuerdas que|recuerdas de|dije que|te dije|te cont[eé]|hablamos de|hablado de)\\b")
 
     suspend fun searchContext(prompt: String, currentDate: String): SearchResult {
         MonLogger.d(TAG, "searchContext: Analizando prompt de entrada -> '$prompt'")
@@ -23,7 +29,10 @@ class ContextSearcher(
         val timeMatch = timeRegex.find(prompt)
         val semanticMatch = semanticRegex.find(prompt)
 
-        MonLogger.d(TAG, "searchContext: Coincidencias detectadas -> TimeMatch: ${timeMatch != null}, SemanticMatch: ${semanticMatch != null}")
+        // 1. Buscamos primero en el perfil del usuario (nuevo requisito)
+        val userProfileContext = userProfileSearcher.searchUserProfileContext(prompt)
+
+        MonLogger.d(TAG, "searchContext: Coincidencias detectadas -> TimeMatch: ${timeMatch != null}, SemanticMatch: ${semanticMatch != null}, UserProfile: ${userProfileContext.isNotEmpty()}")
 
         var historicalSummaries = ""
         var targetedPastChat = ""
@@ -34,7 +43,8 @@ class ContextSearcher(
             val rawTimeStr = timeMatch.value
             MonLogger.i(TAG, "searchContext: Regex de tiempo activado con valor: '$rawTimeStr'")
 
-            val parseResult = parseTimeContext(rawTimeStr.lowercase())
+            // Le pasamos el prompt completo a parseTimeContext para que detecte si dice "en la noche", "mañana", etc.
+            val parseResult = parseTimeContext(rawTimeStr.lowercase(), prompt)
             isMisspelled = parseResult.isMisspelled
             quantity = parseResult.quantity
 
@@ -69,7 +79,7 @@ class ContextSearcher(
             MonLogger.d(TAG, "searchContext: Ningún regex de tiempo o semántico hizo match.")
         }
 
-        val hasLocalContext = historicalSummaries.isNotEmpty() || targetedPastChat.isNotEmpty()
+        val hasLocalContext = historicalSummaries.isNotEmpty() || targetedPastChat.isNotEmpty() || userProfileContext.isNotEmpty()
 
         if (!hasLocalContext) {
             MonLogger.w(TAG, "searchContext: ⚠️ La base de datos local no arrojó resultados para esta consulta.")
@@ -82,10 +92,22 @@ class ContextSearcher(
         }
 
         MonLogger.i(TAG, "searchContext: ✅ Contexto local encontrado exitosamente en SQLite. Construyendo prompt enriquecido.")
-        val enrichedPrompt = "[SysTime:$currentDate]\n[Alisa recuerda este contexto de la memoria profunda:\n$historicalSummaries]\n[Extracto del chat correspondiente:\n$targetedPastChat]\nLily:$prompt"
+
+        // Concatenamos todo lo encontrado (Perfil de usuario + Memoria histórica + Chat)
+        val contextBuilder = StringBuilder("[SysTime:$currentDate]\n")
+        if (userProfileContext.isNotEmpty()) {
+            contextBuilder.append("$userProfileContext\n")
+        }
+        if (historicalSummaries.isNotEmpty()) {
+            contextBuilder.append("[Alisa recuerda este contexto de la memoria profunda:\n$historicalSummaries]\n")
+        }
+        if (targetedPastChat.isNotEmpty()) {
+            contextBuilder.append("[Extracto del chat correspondiente:\n$targetedPastChat]\n")
+        }
+        contextBuilder.append("Lily:$prompt")
 
         return SearchResult(
-            finalPrompt = enrichedPrompt,
+            finalPrompt = contextBuilder.toString(),
             hasLocalContext = true,
             isMisspelled = isMisspelled,
             quantity = quantity
@@ -94,7 +116,7 @@ class ContextSearcher(
 
     private data class TimeParseData(val startTime: Long, val endTime: Long, val quantity: Int, val isMisspelled: Boolean)
 
-    private fun parseTimeContext(matchedValue: String): TimeParseData {
+    private fun parseTimeContext(matchedValue: String, fullPrompt: String): TimeParseData {
         MonLogger.d(TAG, "parseTimeContext: Analizando cadena temporal cruda: '$matchedValue'")
 
         val isMisspelled = matchedValue.contains("dias") && !matchedValue.contains("días")
@@ -104,11 +126,7 @@ class ContextSearcher(
 
         val numberMatch = Regex("\\d+").find(matchedValue)
         val quantity = when {
-            numberMatch != null -> {
-                val num = numberMatch.value.toInt()
-                MonLogger.d(TAG, "parseTimeContext: Número encontrado por dígito: $num")
-                num
-            }
+            numberMatch != null -> numberMatch.value.toInt()
             matchedValue.contains("dos") -> 2
             matchedValue.contains("tres") -> 3
             matchedValue.contains("cuatro") -> 4
@@ -118,46 +136,65 @@ class ContextSearcher(
             matchedValue.contains("ocho") -> 8
             matchedValue.contains("nueve") -> 9
             matchedValue.contains("diez") -> 10
-            matchedValue.contains("un") || matchedValue.contains("unos") -> 1
-            else -> {
-                MonLogger.d(TAG, "parseTimeContext: No se detectó número explícito, asignando cantidad predeterminada: 1")
-                1
-            }
+            else -> 1
         }
 
-        val now = System.currentTimeMillis()
+        val cal = Calendar.getInstance()
+        cal.set(Calendar.HOUR_OF_DAY, 0)
+        cal.set(Calendar.MINUTE, 0)
+        cal.set(Calendar.SECOND, 0)
+        cal.set(Calendar.MILLISECOND, 0)
+        val midnightToday = cal.timeInMillis
+
         val oneHour = 3600_000L
         val oneDay = 24 * oneHour
         var startTime = 0L
-        var endTime = now
+        var endTime = System.currentTimeMillis()
 
         when {
-            matchedValue.contains("ayer") || matchedValue.contains("yesterday") ||matchedValue.contains("ayr")||matchedValue.contains("aier")-> {
-                MonLogger.d(TAG, "parseTimeContext: Rango calculado para 'ayer'")
-                startTime = now - (2 * oneDay); endTime = now - oneDay
+            matchedValue.contains("ayer") || matchedValue.contains("yesterday") || matchedValue.contains("ayr") || matchedValue.contains("aier") -> {
+                startTime = midnightToday - oneDay
+                endTime = midnightToday
             }
             matchedValue.contains("antier") -> {
-                MonLogger.d(TAG, "parseTimeContext: Rango calculado para 'antier'")
-                startTime = now - (3 * oneDay); endTime = now - (2 * oneDay)
+                startTime = midnightToday - (2 * oneDay)
+                endTime = midnightToday - oneDay
             }
             matchedValue.contains("semana") || matchedValue.contains("week") -> {
-                MonLogger.d(TAG, "parseTimeContext: Rango calculado para 'semana pasada'")
-                startTime = now - (8 * oneDay); endTime = now - (5 * oneDay)
+                startTime = midnightToday - (7 * oneDay)
+                endTime = midnightToday
             }
-            matchedValue.contains("mes")||    matchedValue.contains("month") -> {
-                MonLogger.d(TAG, "parseTimeContext: Rango calculado para 'mes pasado'")
-                startTime = now - (32 * oneDay); endTime = now - (25 * oneDay)
+            matchedValue.contains("mes") || matchedValue.contains("month") -> {
+                startTime = midnightToday - (30 * oneDay)
+                endTime = midnightToday
             }
-            matchedValue.contains("días") || matchedValue.contains("days")|| matchedValue.contains("dias") || matchedValue.contains("dia") -> {
-                MonLogger.d(TAG, "parseTimeContext: Rango calculado para 'hace $quantity días'")
-                startTime = now - ((quantity + 1) * oneDay)
-                endTime = now - (quantity * oneDay)
+            matchedValue.contains("días") || matchedValue.contains("days") || matchedValue.contains("dias") || matchedValue.contains("dia") -> {
+                startTime = System.currentTimeMillis() - ((quantity + 1) * oneDay)
+                endTime = System.currentTimeMillis() - (quantity * oneDay)
             }
-            matchedValue.contains("horas")|| matchedValue.contains("hour") || matchedValue.contains("hora") -> {
-                MonLogger.d(TAG, "parseTimeContext: Rango calculado para 'hace $quantity horas'")
-                startTime = now - ((quantity + 1) * oneHour)
-                endTime = now - (quantity * oneHour)
+            matchedValue.contains("horas") || matchedValue.contains("hour") || matchedValue.contains("hora") -> {
+                startTime = System.currentTimeMillis() - ((quantity + 1) * oneHour)
+                endTime = System.currentTimeMillis() - (quantity * oneHour)
             }
+        }
+
+        // Modificadores de parte del día ("en la mañana", "en la noche", etc.)
+        val promptLower = fullPrompt.lowercase()
+        if (promptLower.contains("mañana")) {
+            // Desde las 6 AM hasta las 12 PM de ese día de inicio
+            endTime = startTime + (12 * oneHour)
+            startTime = startTime + (6 * oneHour)
+            MonLogger.d(TAG, "parseTimeContext: Se aplicó modificador de 'mañana'")
+        } else if (promptLower.contains("tarde")) {
+            // Desde las 12 PM hasta las 7 PM (19h)
+            endTime = startTime + (19 * oneHour)
+            startTime = startTime + (12 * oneHour)
+            MonLogger.d(TAG, "parseTimeContext: Se aplicó modificador de 'tarde'")
+        } else if (promptLower.contains("noche")) {
+            // Desde las 7 PM (19h) hasta las 4 AM del día siguiente
+            endTime = startTime + (24 * oneHour) + (4 * oneHour)
+            startTime = startTime + (19 * oneHour)
+            MonLogger.d(TAG, "parseTimeContext: Se aplicó modificador de 'noche'")
         }
 
         MonLogger.d(TAG, "parseTimeContext: Cálculo finalizado -> StartTime: $startTime, EndTime: $endTime")
@@ -166,14 +203,22 @@ class ContextSearcher(
 
     private fun cleanSemanticPrompt(prompt: String): String {
         MonLogger.d(TAG, "cleanSemanticPrompt: Limpiando prompt para búsqueda semántica: '$prompt'")
-        val cleanPrompt = prompt.lowercase()
-            .replace(Regex("(?i)\\b(te acuerdas|recordar|recuerdas que|recuerdas de|dije que|te dije|te conté|te conte|hablamos de|hablado de)\\b"), "")
-            .replace(Regex("[^a-záéíóúñ0-9 ]"), "")
-            .trim()
 
-        val keywords = cleanPrompt.split(" ").filter { it.length > 4 }
-        val mainKeyword = if (keywords.isNotEmpty()) keywords[0] else ""
-        MonLogger.d(TAG, "cleanSemanticPrompt: Prompt limpio resultante: '$cleanPrompt' | Keyword principal elegida: '$mainKeyword'")
+        // Removemos palabras conectoras (stopwords) comunes para quedarnos con el núcleo de la idea
+        val stopWords = listOf(
+            "te", "acuerdas", "que", "dije", "conte", "hablamos", "de", "recordar", "recuerdas",
+            "me", "gustaba", "gusta", "tal", "y", "como", "cuando", "un", "una", "el", "la",
+            "los", "las", "para", "por", "sobre", "lo", "le", "en", "a"
+        )
+
+        val cleanPrompt = prompt.lowercase().replace(Regex("[^a-záéíóúñ0-9 ]"), " ")
+        val words = cleanPrompt.split(Regex("\\s+")).filter { it.isNotBlank() && it !in stopWords && it.length > 2 }
+
+        // Buscamos la palabra más larga (normalmente el sujeto o la palabra con más carga semántica)
+        // Ejemplo: "te acuerdas que te dije que me gustaba el chocolate" -> nos quedamos con "chocolate"
+        val mainKeyword = words.maxByOrNull { it.length } ?: ""
+
+        MonLogger.d(TAG, "cleanSemanticPrompt: Prompt limpio resultante: '$words' | Keyword principal elegida: '$mainKeyword'")
         return mainKeyword
     }
 }

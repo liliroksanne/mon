@@ -35,7 +35,7 @@ class GeminiRepository(
         GenerativeModel(
             modelName = BuildConfig.GEMINI_TYPE,
             apiKey = BuildConfig.GEMINI_API_KEY,
-            systemInstruction = content { text("Eres un extractor de datos. Extrae información personal de Lily en el formato 'CATEGORÍA|VALOR'. Si no hay nada, responde 'EMPTY'.") }
+            systemInstruction = content { text("Eres un extractor de datos de perfil de usuario. Extrae cualquier información sobre gustos, intereses, características físicas, familiares u otros datos personales del mensaje. Tu respuesta debe tener el formato estricto: 'ETIQUETA_1, ETIQUETA_2|VALOR'. Ejemplo 1: 'gustos, comida, pizza|El usuario ama comer pizza'. Ejemplo 2: 'familia, mascota, perro|El usuario tiene un perro llamado Firulais'. Si no hay datos personales relevantes, responde 'EMPTY'.") }
         )
     }
     private val systemInstruction = """
@@ -135,11 +135,31 @@ class GeminiRepository(
                 var profileExtract = iaLocal.extractLilyProfile(lilyMessage)
 
                 if (profileExtract == "EMPTY" && !useHardcode) {
-                    // Respaldo remoto
-                    val remoteExtract = profileExtractorModel.generateContent(
-                        "Mensaje de Lily: \"$lilyMessage\". Extrae datos personales si los hay. Formato: CATEGORÍA|VALOR. Si no, responde EMPTY."
-                    )
-                    profileExtract = remoteExtract.text?.trim() ?: "EMPTY"
+                    if (profileExtract == "EMPTY" && !useHardcode) {
+                        // Respaldo remoto
+                        val remoteExtract = profileExtractorModel.generateContent(
+                            "Mensaje: \"$lilyMessage\". Extrae datos personales si los hay. Formato: ETIQUETAS_SEPARADAS_POR_COMAS|VALOR. Si no, responde EMPTY."
+                        )
+                        profileExtract = remoteExtract.text?.trim() ?: "EMPTY"
+                    }
+
+                    if (profileExtract != "EMPTY" && profileExtract.contains("|")) {
+                        val parts = profileExtract.split("|")
+                        if (parts.size == 2) {
+                            val tagsString = parts[0].trim().lowercase()
+                            val info = parts[1].trim()
+
+                            // Separar y limpiar las etiquetas
+                            val tags = tagsString.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+
+                            // Guardar para CADA etiqueta
+                            for (tag in tags) {
+                                memoryRepo.upsertUserProfileData(tag, info)
+                            }
+
+                            MonLogger.i(TAG, "NUEVO DATO DE USUARIO APRENDIDO: Etiquetas [$tagsString] -> $info")
+                        }
+                    }
                 }
 
                 if (profileExtract != "EMPTY" && profileExtract.contains("|")) {

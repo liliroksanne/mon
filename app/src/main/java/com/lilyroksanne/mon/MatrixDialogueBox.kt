@@ -30,7 +30,7 @@ class MatrixDialogueBox @JvmOverloads constructor(
     private var currentCharIndex = 0
 
     // Velocidades base (Modifícalas aquí si lo quieres más lento o más rápido de golpe)
-    private var typingSpeedMillis: Long = 7L // Velocidad normal (rápida para los ... o errores)
+    private var typingSpeedMillis: Long = 77L //   Velocidad normal (rápida para los ... o errores)
     private var slowTypingSpeedMillis: Long = 77L //  Velocidad S ÚPER lenta (simulando voz humana de TTS)
     var onDialogueFinished: (() -> Unit)? = null
 
@@ -57,15 +57,25 @@ class MatrixDialogueBox @JvmOverloads constructor(
     var skullView: MatrixSkullView? = null
 
     init {
+        // === ESCALAR LA CAJA DE TEXTO DEPENDIENDO DE LA PANTALLA ===
+        val displayMetrics = context.resources.displayMetrics
+        val density = displayMetrics.density
+        val screenWidth = displayMetrics.widthPixels
+        val scaleFactor = (screenWidth / 1080f).coerceAtLeast(0.6f)
+        val dpToPx = { dp: Int -> (dp * density).toInt() }
+
         orientation = VERTICAL
-        setPadding(45, 35, 45, 35)
+        // Padding responsivo
+        setPadding(dpToPx(16), dpToPx(12), dpToPx(16), dpToPx(12))
         setBackgroundColor(Color.parseColor("#DD11051F"))
 
         textView = TextView(context).apply {
             setTextColor(Color.parseColor("#DA70D6"))
-            textSize = 29f
+            // Texto responsivo: original era 29f, se ajusta con base matemática
+            textSize = (29f * scaleFactor).coerceAtLeast(16f)
             typeface = Typeface.MONOSPACE
-            setLineSpacing(8f, 1.0f)
+            // Line spacing responsivo
+            setLineSpacing(dpToPx(3).toFloat(), 1.0f)
             maxLines = 3
             movementMethod = ScrollingMovementMethod()
             isVerticalScrollBarEnabled = true
